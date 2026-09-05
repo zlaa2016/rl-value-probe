@@ -35,6 +35,39 @@ def partial_texts(tokenizer, generated_ids, fractions):
     return parts
 
 
+def save_outputs(
+    rollout_path,
+    activation_path,
+    rollout_records,
+    activation_vectors,
+    activation_rollout_ids,
+    activation_model_stages,
+    activation_layers,
+    activation_fractions,
+):
+    """Atomically checkpoint every completed rollout and its activations."""
+    if not rollout_records or not activation_vectors:
+        return
+
+    rollout_tmp = rollout_path.with_name(f".{rollout_path.name}.tmp")
+    with open(rollout_tmp, "w") as f:
+        for record in rollout_records:
+            f.write(json.dumps(record) + "\n")
+    rollout_tmp.replace(rollout_path)
+
+    activation_tmp = activation_path.with_name(f".{activation_path.name}.tmp")
+    with open(activation_tmp, "wb") as f:
+        np.savez_compressed(
+            f,
+            vectors=np.stack(activation_vectors).astype(np.float32),
+            rollout_ids=np.array(activation_rollout_ids),
+            model_stages=np.array(activation_model_stages),
+            layers=np.array(activation_layers),
+            fractions=np.array(activation_fractions),
+        )
+    activation_tmp.replace(activation_path)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -97,6 +130,13 @@ def main():
             prompt_ids = prompt_ids_from_row(row, tokenizer)
 
             for rollout_idx in range(args.n_rollouts):
+                if run is not None:
+                    run.log({
+                        "progress/rollouts_started": len(rollout_records) + 1,
+                        "progress/model_stage": stage,
+                        "progress/phase": "generation",
+                    })
+
                 result = generate_rollout(
                     model=model,
                     tokenizer=tokenizer,
@@ -116,6 +156,16 @@ def main():
                     generated_text=result["text"],
                     generated_ids=generated_ids,
                 )
+
+                if run is not None:
+                    # Log the terminal reward before the more memory-intensive
+                    # activation replay so W&B shows experiment progress early.
+                    run.log({
+                        "rollout/reward": reward,
+                        "rollout/generated_tokens": len(generated_ids),
+                        "progress/model_stage": stage,
+                        "progress/phase": "activation_extraction",
+                    })
 
                 vectors, token_positions, policy_signals = extract_states_and_signals(
                     model=model,
@@ -150,15 +200,6 @@ def main():
                 }
                 rollout_records.append(record)
 
-                if run is not None:
-                    run.log({
-                        "rollout/reward": reward,
-                        "rollout/generated_tokens": len(generated_ids),
-                        "rollout/model_stage": stage,
-                        "rollout/prompt_index": prompt_idx,
-                        "rollout/sample_index": rollout_idx,
-                    })
-
                 for (layer, frac), vec in vectors.items():
                     activation_vectors.append(vec)
                     activation_rollout_ids.append(rollout_id)
@@ -166,11 +207,45 @@ def main():
                     activation_layers.append(layer)
                     activation_fractions.append(frac)
 
+                save_outputs(
+                    rollout_path,
+                    activation_path,
+                    rollout_records,
+                    activation_vectors,
+                    activation_rollout_ids,
+                    activation_model_stages,
+                    activation_layers,
+                    activation_fractions,
+                )
+
+                if run is not None:
+                    run.log({
+                        "progress/rollouts_completed": len(rollout_records),
+                        "progress/model_stage": stage,
+                        "progress/phase": "rollout_complete",
+                        "rollout/model_stage": stage,
+                        "rollout/prompt_index": prompt_idx,
+                        "rollout/sample_index": rollout_idx,
+                    })
+
                 print(
                     f"{stage:4s} prompt={prompt_idx:03d} "
                     f"rollout={rollout_idx} reward={reward:.2f} "
                     f"tokens={len(generated_ids)}"
                 )
+
+        if run is not None and rollout_records:
+            # Persist each finished model stage outside the Kaggle session.
+            run.save(
+                str(rollout_path.resolve()),
+                base_path=str(out_dir.resolve()),
+                policy="now",
+            )
+            run.save(
+                str(activation_path.resolve()),
+                base_path=str(out_dir.resolve()),
+                policy="now",
+            )
 
         del model
         del tokenizer
@@ -178,17 +253,15 @@ def main():
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    with open(rollout_path, "w") as f:
-        for record in rollout_records:
-            f.write(json.dumps(record) + "\n")
-
-    np.savez_compressed(
+    save_outputs(
+        rollout_path,
         activation_path,
-        vectors=np.stack(activation_vectors).astype(np.float32),
-        rollout_ids=np.array(activation_rollout_ids),
-        model_stages=np.array(activation_model_stages),
-        layers=np.array(activation_layers),
-        fractions=np.array(activation_fractions),
+        rollout_records,
+        activation_vectors,
+        activation_rollout_ids,
+        activation_model_stages,
+        activation_layers,
+        activation_fractions,
     )
 
     if run is not None:

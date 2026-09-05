@@ -195,6 +195,10 @@ Each rollout stores:
 - terminal reward
 - partial text at 25%, 50%, 75%, 100%
 
+Both output files are atomically checkpointed after every completed rollout.
+When W&B is enabled, they are also uploaded after each completed model stage,
+so a later Kaggle interruption does not erase all earlier-stage results.
+
 The NPZ stores hidden vectors indexed by rollout, layer, and trajectory fraction.
 
 `probe.py` writes:
