@@ -8,7 +8,7 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.preprocessing import StandardScaler
 
-from baselines import policy_signal_matrix, regression_metrics
+from analysis_utils import policy_signal_matrix, regression_metrics
 from tracking import add_wandb_args, init_wandb, log_rollout_trajectories
 
 

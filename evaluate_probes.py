@@ -8,7 +8,7 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Ridge
 
-from baselines import policy_signal_matrix, regression_metrics
+from analysis_utils import policy_signal_matrix, regression_metrics
 from probe import load_activations, load_rollouts, split_by_prompt
 from tracking import add_wandb_args, init_wandb
 

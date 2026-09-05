@@ -1,3 +1,5 @@
+"""Shared feature and regression-metric utilities for the analysis scripts."""
+
 import numpy as np
 from sklearn.metrics import mean_squared_error, r2_score
 
@@ -55,12 +57,7 @@ POLICY_SIGNAL_KEYS = (
 
 
 def policy_signal_matrix(rows, fraction_key):
-    """
-    Observable model-confidence features for a rollout prefix.
-
-    These are not trained rewards. They are raw policy statistics derived
-    from the model's next-token distribution.
-    """
+    """Return observable policy-confidence features for a rollout prefix."""
     return np.asarray([
         [
             row["policy_signals"][fraction_key][key]

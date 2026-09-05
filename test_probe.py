@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from baselines import regression_metrics
+from analysis_utils import regression_metrics
 from probe import evaluate_ridge_with_label_shuffle, paired_activation_deltas
 
 

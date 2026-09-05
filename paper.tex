@@ -142,17 +142,40 @@ instruction-following outcomes. This separation is important because confidence
 may be useful as an optimization signal in some reasoning domains without being
 a calibrated estimate of constraint satisfaction in this setting.
 
-\subsection{External, Internal, and Structured Rewards}
+\subsection{Response Planning and the Limits of Probing}
 
-RL for language models can combine several sources of feedback. For example,
-Shop-R1 combines an internal signal for rationale generation with structured
-rewards for action type and action details in an online-shopping environment
+The closest positive precedent is work showing that prompt representations can
+predict global attributes of later responses, including structure, content,
+and behavioral properties \citep{dong2025planning}. That result motivates
+looking before the final token, but prediction of a future attribute is not yet
+evidence of a value function. In the present setting, the target must vary among
+continuations from comparable prefixes, and the representation must explain
+outcome variation beyond what is already predictable from the prompt.
+
+This requirement follows a broader methodological literature on probes.
+Control tasks distinguish information in a representation from properties
+learned by a flexible probe \citep{hewitt2019probes}; conditional probing asks
+what information is available beyond a specified baseline
+\citep{hewitt2021conditional}; and amnesic probing demonstrates that
+decodability need not imply behavioral use \citep{elazar2021amnesic}. This
+paper's prompt-block label permutation addresses one narrow form of probe
+memorization. The prompt-centered and partial-verifier audits address
+conditional information. No intervention is performed, so causal use remains
+outside the evidence.
+
+\subsection{Outcome, Process, and Structured Rewards}
+
+Process-supervision work distinguishes feedback on intermediate reasoning steps
+from a single outcome label \citep{lightman2023verify}. This study does not
+train a process reward model; it asks whether quantities already present along
+the model trajectory could serve as candidate prefix-level signals. Related
+systems can combine feedback sources: Shop-R1 uses an internal signal for
+rationale generation and structured rewards for shopping actions
 \citep{zhang2025shopr1}. IFEval instead provides deterministic checks for
-explicit natural-language instructions \citep{zhou2023ifeval}. The current
-experiment uses the latter as an external terminal criterion and retains each
-constraint outcome separately. This makes it possible to identify cases in
-which a high-confidence response remains behaviorally incorrect under the
-specified instruction.
+explicit natural-language instructions \citep{zhou2023ifeval}. I use those
+checks as the external criterion and retain each constraint outcome separately,
+allowing confidence and activation measurements to be evaluated against an
+independently specified behavior rather than treated as reward by definition.
 
 \subsection{Post-Training and Generalization}
 
@@ -304,8 +327,9 @@ trajectory fraction. The implemented feature sets were:
     \item current activation combined with confidence statistics.
 \end{enumerate}
 
-The Base checkpoint served as the model baseline. No TF--IDF baseline was used.
-One fixed 75/25 split was grouped by prompt, placing four prompt groups in the
+The Base checkpoint served as the cross-stage experimental reference, while
+prompt-block label shuffling served as the probe's statistical null. One fixed
+75/25 split was grouped by prompt, placing four prompt groups in the
 training set and two in the test set. All five rollouts from a prompt remained
 in the same split. The statistical null permuted complete prompt-level blocks
 of training rewards before refitting each probe. Recorded metrics included
@@ -728,8 +752,8 @@ The implementation contains the following components:
     artifact outputs.
 \end{itemize}
 
-The Base checkpoint is the model baseline. No TF--IDF history baseline or
-POMDP simulation is part of the reported experiment.
+The Base checkpoint is the cross-stage experimental reference; prompt-block
+label shuffling is the statistical null for the probe analysis.
 
 \section{Example Prompt and Checkpoint Outcomes}
 
