@@ -106,6 +106,34 @@ The merged files are in `outputs/all-models-six-5ro/`.
 
 Publication-ready summary figures are tracked in `figures/`.
 
+## Paper and figures
+
+`paper.tex` is the results-grounded manuscript for the completed run. Its
+first page is an executive summary, followed by Introduction, Methods, Results,
+Discussion, Limitations, Conclusion, and an appendix with a worked prompt
+example.
+
+Regenerate all paper figures from the saved rollout and analysis artifacts:
+
+```bash
+python make_paper_figures.py
+```
+
+The manuscript places the generated PNG files as follows:
+
+| PNG | Placement in `paper.tex` |
+|---|---|
+| `figures/executive_summary.png` | Executive Summary, first page |
+| `figures/constraint_pass_rates.png` | Results: constraint outcomes |
+| `figures/trajectory_correlation_with_terminal_reward.png` | Results: trajectory correlations |
+| `figures/example_prompt_639_88.png` | Appendix: example prompt |
+
+Compile locally with a LaTeX distribution that provides `acmart`:
+
+```bash
+latexmk -pdf -interaction=nonstopmode -halt-on-error paper.tex
+```
+
 ## Probe evaluation
 
 `evaluate_probes.py` makes one fixed train/test split grouped by prompt. With
@@ -204,6 +232,8 @@ Keys are not stored in the repository.
 | `merge_outputs.py` | Merge rollout directories with duplicate validation |
 | `annotate_constraints.py` | Add prompt text and per-constraint results to older runs |
 | `evaluate_probes.py` | Run held-out probes, null tests, correlations, and plots |
+| `make_paper_figures.py` | Regenerate the four manuscript figures from saved outputs |
+| `paper.tex` | Results-grounded manuscript and appendix |
 | `tracking.py` | Log metrics, tables, plots, and artifacts to W&B |
 
 ## Scope of the completed run
