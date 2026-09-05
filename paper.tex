@@ -111,6 +111,53 @@ descriptive. Although prior work has contrasted memorization under SFT with
 generalization under outcome-based RL \citep{chu2025sft}, the present data do
 not provide the unseen task variants required to test that claim.
 
+\section{Related Work}
+
+\subsection{Internal Feedback and Confidence-Based Reward}
+
+Recent work asks whether a model's own uncertainty can replace or supplement
+external supervision in reinforcement learning for reasoning
+\citep{zhang2025survey}. Intuitor uses self-certainty as its sole reward,
+whereas RENT reinforces high-confidence reasoning trajectories and entropy
+minimization directly concentrates probability on confident outputs
+\citep{zhao2025intuitor,prabhudesai2025rent,agarwal2025entropy}. These methods
+provide evidence that internal uncertainty signals can sometimes support
+learning without labeled solutions. However, \citet{zhang2025nofreelunch}
+report that gains from internal feedback can diminish or reverse over training
+and can be limited for instruction-tuned models.
+
+The present study tests a narrower prerequisite for using confidence as reward:
+whether confidence measured during generation corresponds to an independent
+terminal verifier. Unlike the cited training studies, I do not optimize an
+internal signal. I compare its trajectory post hoc with exact
+instruction-following outcomes. This separation is important because confidence
+may be useful as an optimization signal in some reasoning domains without being
+a calibrated estimate of constraint satisfaction in this setting.
+
+\subsection{External, Internal, and Structured Rewards}
+
+RL for language models can combine several sources of feedback. For example,
+Shop-R1 combines an internal signal for rationale generation with structured
+rewards for action type and action details in an online-shopping environment
+\citep{zhang2025shopr1}. IFEval instead provides deterministic checks for
+explicit natural-language instructions \citep{zhou2023ifeval}. The current
+experiment uses the latter as an external terminal criterion and retains each
+constraint outcome separately. This makes it possible to identify cases in
+which a high-confidence response remains behaviorally incorrect under the
+specified instruction.
+
+\subsection{Post-Training and Generalization}
+
+\citet{chu2025sft} compare SFT and outcome-based RL on explicitly held-out task
+variants and report stronger generalization from RL, while also finding that
+SFT supports subsequent RL by stabilizing output format. That result motivates
+the cross-checkpoint comparison here, but the experimental claims are not the
+same. My OLMo checkpoints are sequential released stages, and my prompts come
+from an RLVR training-source distribution. I therefore examine changes in
+behavior, confidence, and representation dynamics across stages without
+interpreting them as a direct replication of the SFT-versus-RL generalization
+result.
+
 \section{Methods}
 
 \subsection{Experimental Design and Checkpoints}
@@ -449,42 +496,8 @@ This work was prepared as application material for the MATS 12.0 Winter
 debugging, figure generation, and manuscript editing. All numerical results in
 the paper were recomputed from the saved rollout and activation artifacts.
 
-\begin{thebibliography}{9}
-
-\bibitem[Allen Institute for AI(2025a)]{olmo3card}
-Allen Institute for AI.
-\newblock OLMo 3 7B Think SFT model card.
-\newblock \url{https://huggingface.co/allenai/Olmo-3-7B-Think-SFT}, 2025.
-
-\bibitem[Allen Institute for AI(2025b)]{dolcirl}
-Allen Institute for AI.
-\newblock Dolci-Think-RL-7B dataset card.
-\newblock \url{https://huggingface.co/datasets/allenai/Dolci-Think-RL-7B}, 2025.
-
-\bibitem[Allen Institute for AI(2025c)]{openinstruct}
-Allen Institute for AI.
-\newblock Open Instruct.
-\newblock \url{https://github.com/allenai/open-instruct}, 2025.
-
-\bibitem[Chu et~al.(2025)]{chu2025sft}
-Tianzhe Chu, Yuexiang Zhai, Jihan Yang, Shengbang Tong, Saining Xie,
-Dale Schuurmans, Quoc~V. Le, Sergey Levine, and Yi Ma.
-\newblock SFT memorizes, RL generalizes: A comparative study of foundation
-model post-training.
-\newblock \emph{arXiv preprint arXiv:2501.17161}, 2025.
-
-\bibitem[Groeneveld et~al.(2024)]{groeneveld2024olmo}
-Dirk Groeneveld et~al.
-\newblock OLMo: Accelerating the science of language models.
-\newblock \emph{Proceedings of ACL}, 2024.
-
-\bibitem[Zhou et~al.(2023)]{zhou2023ifeval}
-Jeffrey Zhou, Tianjian Lu, Swaroop Mishra, Siddhartha Brahma, Sujoy Basu,
-Yi Luan, Denny Zhou, and Le Hou.
-\newblock Instruction-following evaluation for large language models.
-\newblock \emph{arXiv preprint arXiv:2311.07911}, 2023.
-
-\end{thebibliography}
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
 
 \appendix
 

@@ -234,6 +234,8 @@ Keys are not stored in the repository.
 | `evaluate_probes.py` | Run held-out probes, null tests, correlations, and plots |
 | `make_paper_figures.py` | Regenerate the four manuscript figures from saved outputs |
 | `paper.tex` | Results-grounded manuscript and appendix |
+| `paper_no_figures.tex` | Standalone manuscript version with figure blocks removed |
+| `references.bib` | BibTeX references used by both manuscript versions |
 | `tracking.py` | Log metrics, tables, plots, and artifacts to W&B |
 
 ## Scope of the completed run
