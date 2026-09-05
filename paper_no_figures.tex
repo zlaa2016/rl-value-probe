@@ -15,12 +15,6 @@
 \usepackage{float}
 \usepackage{graphicx}
 
-\newif\ifpaperfigures
-\ifdefined\NoPaperFigures
-  \paperfiguresfalse
-\else
-  \paperfigurestrue
-\fi
 
 \begin{document}
 
@@ -60,16 +54,6 @@ therefore establish a working measurement pipeline and reveal descriptive
 confidence--behavior divergence, but they do not establish reliable reward
 decodability, causal faithfulness, or model generalization.
 
-\ifpaperfigures
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=0.94\linewidth]{figures/executive_summary.png}
-    \caption{Key outcomes from the completed 120-rollout experiment. Aggregate
-    reward changes were small, prompt effects were large, every response hit
-    the generation cap, and the held-out reward target had zero variance.}
-    \label{fig:executive-summary}
-\end{figure}
-\fi
 
 \clearpage
 
@@ -235,9 +219,6 @@ The increase was not broad across prompts. Three prompts received reward zero
 for every checkpoint, and one prompt received exactly 0.25 for every
 checkpoint. Prompt 639-88 improved from 0.0000 for Base to 0.3333 for DPO and
 RLVR, whereas prompt 721-31 decreased from 0.3600 for Base to 0.2400 for RLVR.
-\ifpaperfigures
-Figure~\ref{fig:executive-summary} displays this heterogeneity.
-\fi
 
 \begin{table}[t]
 \centering
@@ -263,29 +244,13 @@ completion-sensitive constraints.
 
 \subsection{Constraint Outcomes Were Sparse and Highly Specific}
 
-\ifpaperfigures
-Figure~\ref{fig:constraint-pass-rates} shows the observed constraint pass
-rates.
-\else
 The observed constraint pass rates were sparse and strongly dependent on
 constraint identity.
-\fi
 The exclude-word and palindrome constraints were passed in every
 rollout for every checkpoint. In contrast, JSON formatting, first-word,
 same-start/end, required-last-word, paragraph-first-word, exact-word-count, and
 counting-composition constraints were never passed in this sample.
 
-\ifpaperfigures
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=0.90\linewidth]{figures/constraint_pass_rates.png}
-    \caption{Observed pass rate for each verifier constraint and checkpoint.
-    Each cell is the fraction of evaluated instances that passed. Counts are
-    omitted because most constraint IDs occur in only one of the sampled
-    prompts.}
-    \label{fig:constraint-pass-rates}
-\end{figure}
-\fi
 
 The clearest post-training increase occurred for the requirement that a
 specified word appear exactly once: its pass rate was 0\% for Base, 50\% for
@@ -308,29 +273,13 @@ and 1.809 for RLVR. These values indicate larger movement away from the 25\%
 state in the post-trained checkpoints, but movement magnitude alone does not
 identify a reward-relevant direction.
 
-\ifpaperfigures
-Figure~\ref{fig:trajectory-correlations} shows Pearson correlations with
-terminal reward.
-\else
 The Pearson correlations with terminal reward changed substantially over the
 trajectory.
-\fi
 For SFT, DPO, and RLVR, confidence--reward correlation began
 positive at 25\% (0.560, 0.586, and 0.557 respectively) and fell during the
 rollout. At completion, the correlations were $-0.110$, $-0.261$, and
 $-0.374$. Base remained weakly positive, ending at 0.210.
 
-\ifpaperfigures
-\begin{figure}[t]
-    \centering
-    \includegraphics[width=\linewidth]{figures/trajectory_correlation_with_terminal_reward.png}
-    \caption{Pearson correlation of generated-token confidence and final-layer
-    activation-change RMS with terminal reward. Activation change at 25\% is
-    undefined because that position is the zero-distance reference. Values are
-    descriptive and pool rollouts within checkpoint.}
-    \label{fig:trajectory-correlations}
-\end{figure}
-\fi
 
 Activation-change correlation was not consistent across checkpoints. DPO rose
 from 0.185 at 50\% to 0.390 at completion. RLVR rose from 0.271 at 50\% to
@@ -554,16 +503,6 @@ $[\frac13,\frac13,\frac13,\frac13,\frac13]$ & 0.3333 \\
 \end{tabular}
 \end{table}
 
-\ifpaperfigures
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\linewidth]{figures/example_prompt_639_88.png}
-    \caption{Terminal reward, generated-token confidence, and final-layer
-    activation-change RMS for prompt 639-88. Lines show means and shaded areas
-    show standard deviations across five rollouts.}
-    \label{fig:example-prompt}
-\end{figure}
-\fi
 
 Post-training improved the lexical exactly-once requirement in this example,
 but did not improve the paragraph-first-word or required-last-word constraints.
