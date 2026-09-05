@@ -41,9 +41,12 @@ def _token_confidence_signals(model, final_hidden, generated_ids, chunk_size=64)
         end = min(len(generated_ids), start + chunk_size)
 
         h = final_hidden[start:end]
-        target = generated_ids[start:end].to(h.device)
-
         logits = model.lm_head(h).float()
+
+        # With an Accelerate-sharded model, the dispatch hook can move `h` to
+        # the LM head's device (for example cuda:1) while generated_ids remains
+        # on CPU. The logits device is therefore authoritative for gather.
+        target = generated_ids[start:end].to(logits.device)
         log_probs = torch.log_softmax(logits, dim=-1)
         probs = log_probs.exp()
 
