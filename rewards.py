@@ -28,12 +28,45 @@ def _load_instruction_registry():
     return instructions_registry
 
 
-def _ifeval_label(row):
-    """
-    Ai2's IFEvalVerifier expects a serialized list-like constraint label.
-    Dolci-Think-RL-7B stores ground_truth as a one-element list.
-    """
-    return str(row["ground_truth"])
+def _parse_ifeval_constraint(row):
+    """Unwrap Dolci's nested list/string serialization into one constraint dict."""
+    value = row["ground_truth"]
+
+    # Dataset rows currently look like:
+    #   ["[{'instruction_id': [...], 'kwargs': [...]}]"]
+    # Repeatedly unwrap the singleton containers and serialized values instead
+    # of assuming the inner string is strict JSON.
+    for _ in range(6):
+        if isinstance(value, dict):
+            return value
+
+        if isinstance(value, (list, tuple)):
+            if len(value) != 1:
+                raise ValueError(
+                    "Expected exactly one IFEval constraint payload, "
+                    f"but found {len(value)}."
+                )
+            value = value[0]
+            continue
+
+        if isinstance(value, str):
+            try:
+                value = ast.literal_eval(value)
+            except (SyntaxError, ValueError):
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        "Could not parse the serialized IFEval constraint payload."
+                    ) from exc
+            continue
+
+        raise TypeError(
+            "Unsupported IFEval constraint payload type: "
+            f"{type(value).__name__}."
+        )
+
+    raise ValueError("IFEval constraint payload was nested too deeply.")
 
 
 def _remove_thinking_section(prediction):
@@ -52,9 +85,7 @@ def ifeval_reward(row, generated_text, generated_ids):
     del generated_ids  # The IFEval constraint checks operate on decoded text.
 
     instructions_registry = _load_instruction_registry()
-    constraint_dict = ast.literal_eval(_ifeval_label(row))[0]
-    if isinstance(constraint_dict, str):
-        constraint_dict = json.loads(constraint_dict)
+    constraint_dict = _parse_ifeval_constraint(row)
 
     answer = _remove_thinking_section(generated_text)
     if not generated_text or not answer:
