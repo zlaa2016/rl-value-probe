@@ -79,6 +79,22 @@ def fit_predict(X_train, y_train, X_test, alpha):
     return np.asarray(model.predict(X_test), dtype=float)
 
 
+def permute_prompt_blocks(y, prompts, rng):
+    """Break X/y association while preserving each prompt's rollout outcomes."""
+    unique_prompts = np.asarray(sorted(set(prompts)))
+    source_prompts = rng.permutation(unique_prompts)
+    shuffled = np.empty_like(y)
+    for target_prompt, source_prompt in zip(unique_prompts, source_prompts):
+        target_indices = np.flatnonzero(prompts == target_prompt)
+        source_indices = np.flatnonzero(prompts == source_prompt)
+        if len(target_indices) != len(source_indices):
+            raise ValueError(
+                "Prompt-block label shuffling requires equal rollouts per prompt."
+            )
+        shuffled[target_indices] = y[source_indices]
+    return shuffled
+
+
 def heldout_predictions(
     X,
     y,
@@ -99,7 +115,7 @@ def heldout_predictions(
     if shuffle_train_labels:
         if rng is None:
             raise ValueError("An RNG is required for shuffled-label controls.")
-        y_train = rng.permutation(y_train)
+        y_train = permute_prompt_blocks(y_train, prompts[train_mask], rng)
     prediction = fit_predict(
         X[train_mask],
         y_train,
@@ -321,6 +337,18 @@ def descriptive_trajectory_frame(rows, lookup, final_layer, fractions):
     return pd.DataFrame(records)
 
 
+def safe_correlation(frame, first, second, method):
+    """Return NaN without warnings when either variable is constant."""
+    pair = frame[[first, second]].dropna()
+    if (
+        len(pair) < 2
+        or pair[first].nunique() < 2
+        or pair[second].nunique() < 2
+    ):
+        return math.nan
+    return float(pair[first].corr(pair[second], method=method))
+
+
 def faithfulness_correlations(descriptive):
     rows = []
     pairs = (
@@ -338,8 +366,8 @@ def faithfulness_correlations(descriptive):
                 "variable_1": first,
                 "variable_2": second,
                 "n": len(group),
-                "pearson": group[first].corr(group[second], method="pearson"),
-                "spearman": group[first].corr(group[second], method="spearman"),
+                "pearson": safe_correlation(group, first, second, "pearson"),
+                "spearman": safe_correlation(group, first, second, "spearman"),
             })
     return pd.DataFrame(rows)
 
@@ -385,11 +413,11 @@ def constraint_analysis(rows, descriptive):
                 "variable": variable,
                 "n": len(group),
                 "prompts": group["prompt_id"].nunique(),
-                "pearson_with_pass": group[variable].corr(
-                    group["passed"], method="pearson"
+                "pearson_with_pass": safe_correlation(
+                    group, variable, "passed", "pearson"
                 ),
-                "spearman_with_pass": group[variable].corr(
-                    group["passed"], method="spearman"
+                "spearman_with_pass": safe_correlation(
+                    group, variable, "passed", "spearman"
                 ),
             })
     return difficulty, pd.DataFrame(correlation_rows)
@@ -628,6 +656,17 @@ def main():
     if len(constraint_difficulty):
         constraint_difficulty.to_csv(constraint_difficulty_path, index=False)
         constraint_correlations.to_csv(constraint_correlations_path, index=False)
+    undefined_r2 = metrics["r2"].isna()
+    if undefined_r2.any():
+        stages_with_constant_targets = sorted(
+            metrics.loc[undefined_r2, "model_stage"].unique()
+        )
+        print(
+            "Warning: held-out R2 is undefined for "
+            f"{int(undefined_r2.sum())} evaluations because their test rewards "
+            "have zero variance. Affected stages: "
+            f"{', '.join(stages_with_constant_targets)}"
+        )
     image_paths = plot_instruction_trajectories(
         predictions,
         output_dir / "heldout_probe_trajectories",

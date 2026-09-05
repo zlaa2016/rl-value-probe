@@ -2,10 +2,30 @@ import unittest
 
 import numpy as np
 
+from baselines import regression_metrics
 from probe import evaluate_ridge_with_label_shuffle, paired_activation_deltas
 
 
 class LabelShuffleControlTest(unittest.TestCase):
+    def test_constant_targets_make_r2_and_rank_correlation_undefined(self):
+        metrics = regression_metrics(
+            np.asarray([0.0, 0.0, 0.0]),
+            np.asarray([0.1, 0.2, 0.3]),
+        )
+
+        self.assertTrue(np.isnan(metrics["r2"]))
+        self.assertTrue(np.isnan(metrics["spearman_like"]))
+        self.assertEqual(metrics["target_variance"], 0.0)
+        self.assertAlmostEqual(metrics["mse"], 0.14 / 3)
+
+    def test_rank_correlation_uses_average_ranks(self):
+        metrics = regression_metrics(
+            np.asarray([0.0, 0.0, 1.0, 1.0]),
+            np.asarray([0.0, 0.0, 1.0, 1.0]),
+        )
+
+        self.assertAlmostEqual(metrics["spearman_like"], 1.0)
+
     def test_real_signal_beats_shuffled_training_labels(self):
         rng = np.random.default_rng(7)
         X = rng.normal(size=(160, 8))

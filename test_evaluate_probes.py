@@ -5,7 +5,9 @@ import numpy as np
 from evaluate_probes import (
     activation_features,
     activation_lookup,
+    faithfulness_correlations,
     heldout_predictions,
+    permute_prompt_blocks,
 )
 
 
@@ -57,6 +59,34 @@ class EvaluationProbeTest(unittest.TestCase):
         )
 
         np.testing.assert_allclose(X, [[1.0, 2.0, 3.0, 4.0]])
+
+    def test_label_shuffle_preserves_prompt_rollout_blocks(self):
+        y = np.asarray([0.0, 0.5, 1.0, 1.0])
+        prompts = np.asarray(["p0", "p0", "p1", "p1"])
+        shuffled = permute_prompt_blocks(
+            y,
+            prompts,
+            np.random.default_rng(3),
+        )
+
+        blocks_before = sorted([tuple(y[:2]), tuple(y[2:])])
+        blocks_after = sorted([tuple(shuffled[:2]), tuple(shuffled[2:])])
+        self.assertEqual(blocks_before, blocks_after)
+
+    def test_constant_trajectory_variable_has_undefined_correlation(self):
+        import pandas as pd
+
+        descriptive = pd.DataFrame({
+            "model_stage": ["base"] * 3,
+            "fraction": [0.25] * 3,
+            "confidence": [0.5, 0.5, 0.5],
+            "activation_change_rms": [0.0, 0.0, 0.0],
+            "reward": [0.0, 0.5, 1.0],
+        })
+        correlations = faithfulness_correlations(descriptive)
+
+        self.assertTrue(correlations["pearson"].isna().all())
+        self.assertTrue(correlations["spearman"].isna().all())
 
 
 if __name__ == "__main__":
