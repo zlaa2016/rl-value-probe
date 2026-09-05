@@ -77,10 +77,9 @@ def _remove_thinking_section(prediction):
     return prediction.strip()
 
 
-def ifeval_reward(row, generated_text, generated_ids):
+def ifeval_reward_details(row, generated_text, generated_ids):
     """
-    Compute the same style of terminal instruction-following reward used
-    by Ai2's IFEval verifier: fraction of constraints satisfied.
+    Return terminal reward plus each verifiable constraint's pass/fail result.
     """
     del generated_ids  # The IFEval constraint checks operate on decoded text.
 
@@ -88,10 +87,8 @@ def ifeval_reward(row, generated_text, generated_ids):
     constraint_dict = _parse_ifeval_constraint(row)
 
     answer = _remove_thinking_section(generated_text)
-    if not generated_text or not answer:
-        return 0.0
-
     rewards = []
+    constraint_results = []
     instruction_dict = instructions_registry.INSTRUCTION_DICT
 
     for instruction_key, args in zip(
@@ -101,9 +98,26 @@ def ifeval_reward(row, generated_text, generated_ids):
         args = {} if args is None else args
         args = {key: value for key, value in args.items() if value is not None}
 
-        instruction_cls = instruction_dict[instruction_key]
-        instruction = instruction_cls(instruction_key)
-        instruction.build_description(**args)
-        rewards.append(float(instruction.check_following(answer)))
+        if not generated_text or not answer:
+            passed = False
+        else:
+            instruction_cls = instruction_dict[instruction_key]
+            instruction = instruction_cls(instruction_key)
+            instruction.build_description(**args)
+            passed = bool(instruction.check_following(answer))
+        rewards.append(float(passed))
+        constraint_results.append({
+            "instruction_id": instruction_key,
+            "kwargs": args,
+            "passed": passed,
+        })
 
-    return float(sum(rewards) / max(len(rewards), 1))
+    return {
+        "reward": float(sum(rewards) / max(len(rewards), 1)),
+        "constraint_results": constraint_results,
+    }
+
+
+def ifeval_reward(row, generated_text, generated_ids):
+    """Backward-compatible scalar reward wrapper."""
+    return ifeval_reward_details(row, generated_text, generated_ids)["reward"]

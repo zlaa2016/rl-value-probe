@@ -219,12 +219,15 @@ python download_wandb_artifact.py \
   --output-dir outputs/artifacts/all-models-six
 ```
 
-For the main analysis, `evaluate_probes.py` uses leave-one-prompt-out predictions
-for every instruction. Ridge is the primary linear-decoding test, RBF kernel
-ridge is a nonlinear sensitivity analysis, and cumulative activation-history
-Ridge is the temporal model. It also evaluates adjacent activation deltas and
-the policy-confidence baseline, writes predictions and metrics to CSV, and
-creates one final-layer trajectory plot per instruction.
+For the main analysis, `evaluate_probes.py` uses one fixed prompt-grouped
+train/test split shared by all checkpoints. Ridge is the primary
+linear-decoding test; cumulative activation-history Ridge is the temporal
+model. It also evaluates adjacent activation deltas, policy confidence, and
+activation-plus-confidence features against shuffled-label nulls. It writes
+held-out predictions, descriptive faithfulness correlations, and one trajectory
+plot per instruction. `annotate_constraints.py` retrofits older rollouts with
+the individual IFEval constraint pass/fail results needed for constraint-level
+difficulty analysis.
 
 The NPZ stores hidden vectors indexed by rollout, layer, and trajectory fraction.
 

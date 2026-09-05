@@ -16,7 +16,7 @@ from config import (
 )
 from data import load_if_prompts
 from generate import generate_rollout, load_model, prompt_ids_from_row
-from rewards import ifeval_reward
+from rewards import ifeval_reward_details
 from tracking import add_wandb_args, init_wandb, log_rollout_trajectories
 
 
@@ -248,11 +248,12 @@ def main():
                     print(f"Skipping empty rollout: {stage=} {prompt_idx=} {rollout_idx=}")
                     continue
 
-                reward = ifeval_reward(
+                reward_details = ifeval_reward_details(
                     row=row,
                     generated_text=result["text"],
                     generated_ids=generated_ids,
                 )
+                reward = reward_details["reward"]
 
                 if run is not None:
                     # Log the terminal reward before the more memory-intensive
@@ -281,6 +282,7 @@ def main():
                     "prompt_text": str(row.get("prompt", "")),
                     "rollout_index": rollout_idx,
                     "reward": reward,
+                    "constraint_results": reward_details["constraint_results"],
                     "generated_text": result["text"],
                     # Preserve the exact trajectory for future teacher-forced
                     # replay through every checkpoint.

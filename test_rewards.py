@@ -1,6 +1,6 @@
 import unittest
 
-from rewards import _parse_ifeval_constraint, ifeval_reward
+from rewards import _parse_ifeval_constraint, ifeval_reward, ifeval_reward_details
 
 
 class IFEvalConstraintParsingTest(unittest.TestCase):
@@ -42,6 +42,16 @@ class IFEvalConstraintParsingTest(unittest.TestCase):
         }
 
         self.assertEqual(ifeval_reward(row, '{"answer": 11}', None), 1.0)
+        details = ifeval_reward_details(row, '{"answer": 11}', None)
+        self.assertEqual(details["reward"], 1.0)
+        self.assertEqual(
+            details["constraint_results"],
+            [{
+                "instruction_id": "detectable_format:json_format",
+                "kwargs": {},
+                "passed": True,
+            }],
+        )
 
 
 if __name__ == "__main__":

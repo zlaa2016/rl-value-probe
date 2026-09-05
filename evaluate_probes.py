@@ -5,20 +5,18 @@ import re
 
 import numpy as np
 import pandas as pd
-from sklearn.kernel_ridge import KernelRidge
-from sklearn.metrics import pairwise_distances
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import Ridge
 
 from baselines import policy_signal_matrix, regression_metrics
-from probe import load_activations, load_rollouts
+from probe import load_activations, load_rollouts, split_by_prompt
 from tracking import add_wandb_args, init_wandb
 
 
 INTERNAL_PROBES = (
     "current_ridge",
-    "current_rbf",
     "temporal_history_ridge",
+    "current_plus_confidence_ridge",
 )
 
 
@@ -71,76 +69,69 @@ def activation_features(rows, lookup, stage, layer, fractions, fraction, mode):
     )
 
 
-def fit_predict(X_train, y_train, X_test, model_kind, alpha):
+def fit_predict(X_train, y_train, X_test, alpha):
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
 
-    if model_kind == "ridge":
-        model = Ridge(alpha=alpha)
-    elif model_kind == "rbf":
-        distances = pairwise_distances(X_train, metric="sqeuclidean")
-        positive = distances[np.triu_indices_from(distances, k=1)]
-        positive = positive[positive > 0]
-        median_distance = float(np.median(positive)) if len(positive) else 1.0
-        gamma = 1.0 / max(median_distance, 1e-12)
-        model = KernelRidge(alpha=alpha, kernel="rbf", gamma=gamma)
-    else:
-        raise ValueError(f"Unknown model kind: {model_kind}")
-
+    model = Ridge(alpha=alpha)
     model.fit(X_train, y_train)
     return np.asarray(model.predict(X_test), dtype=float)
 
 
-def leave_one_prompt_out_predictions(
+def heldout_predictions(
     X,
     y,
     prompts,
-    model_kind,
+    train_prompts,
+    test_prompts,
     alpha,
     rng=None,
     shuffle_train_labels=False,
 ):
-    """Predict every rollout from a model that never trained on its prompt."""
-    unique_prompts = sorted(set(prompts))
-    if len(unique_prompts) < 3:
-        raise ValueError("At least three distinct prompts are required.")
+    """Fit once on train prompts and predict only the fixed held-out prompts."""
+    train_mask = np.asarray([prompt in train_prompts for prompt in prompts])
+    test_mask = np.asarray([prompt in test_prompts for prompt in prompts])
+    if train_mask.sum() < 4 or test_mask.sum() < 2:
+        raise ValueError("The fixed prompt split has too few train/test rollouts.")
 
-    predictions = np.full(len(y), np.nan, dtype=float)
-    for prompt in unique_prompts:
-        test_mask = prompts == prompt
-        train_mask = ~test_mask
-        y_train = y[train_mask]
-        if shuffle_train_labels:
-            if rng is None:
-                raise ValueError("An RNG is required for shuffled-label controls.")
-            y_train = rng.permutation(y_train)
-        predictions[test_mask] = fit_predict(
-            X[train_mask],
-            y_train,
-            X[test_mask],
-            model_kind=model_kind,
-            alpha=alpha,
-        )
-
-    if not np.isfinite(predictions).all():
-        raise RuntimeError("Some leave-one-prompt-out predictions are missing.")
-    return predictions
+    y_train = y[train_mask]
+    if shuffle_train_labels:
+        if rng is None:
+            raise ValueError("An RNG is required for shuffled-label controls.")
+        y_train = rng.permutation(y_train)
+    prediction = fit_predict(
+        X[train_mask],
+        y_train,
+        X[test_mask],
+        alpha=alpha,
+    )
+    return prediction, train_mask, test_mask
 
 
-def permutation_null(X, y, prompts, n_shuffles, alpha, rng):
+def permutation_null(
+    X,
+    y,
+    prompts,
+    train_prompts,
+    test_prompts,
+    n_shuffles,
+    alpha,
+    rng,
+):
     null_r2 = []
     for _ in range(n_shuffles):
-        prediction = leave_one_prompt_out_predictions(
+        prediction, _, test_mask = heldout_predictions(
             X,
             y,
             prompts,
-            model_kind="ridge",
+            train_prompts,
+            test_prompts,
             alpha=alpha,
             rng=rng,
             shuffle_train_labels=True,
         )
-        null_r2.append(regression_metrics(y, prediction)["r2"])
+        null_r2.append(regression_metrics(y[test_mask], prediction)["r2"])
     return np.asarray(null_r2, dtype=float)
 
 
@@ -151,29 +142,33 @@ def append_evaluation(
     y,
     prompts,
     rollout_ids,
+    train_prompts,
+    test_prompts,
     stage,
     layer,
     fraction,
     probe_name,
-    model_kind,
     alpha,
     n_label_shuffles,
     rng,
 ):
-    prediction = leave_one_prompt_out_predictions(
+    prediction, train_mask, test_mask = heldout_predictions(
         X,
         y,
         prompts,
-        model_kind=model_kind,
+        train_prompts,
+        test_prompts,
         alpha=alpha,
     )
-    metrics = regression_metrics(y, prediction)
+    metrics = regression_metrics(y[test_mask], prediction)
 
-    if n_label_shuffles and probe_name == "current_ridge":
+    if n_label_shuffles:
         null_r2 = permutation_null(
             X,
             y,
             prompts,
+            train_prompts,
+            test_prompts,
             n_label_shuffles,
             alpha,
             rng,
@@ -196,9 +191,11 @@ def append_evaluation(
         "layer": layer,
         "fraction": fraction,
         "probe": probe_name,
-        "n_rollouts": len(y),
-        "n_prompts": len(set(prompts)),
-        "label_shuffles": n_label_shuffles if probe_name == "current_ridge" else 0,
+        "n_train_rollouts": int(train_mask.sum()),
+        "n_test_rollouts": int(test_mask.sum()),
+        "n_train_prompts": len(train_prompts),
+        "n_test_prompts": len(test_prompts),
+        "label_shuffles": n_label_shuffles,
         **metrics,
     })
     prediction_rows.extend([
@@ -213,16 +210,16 @@ def append_evaluation(
             "prediction": estimate,
         }
         for rollout_id, prompt, target, estimate in zip(
-            rollout_ids,
-            prompts,
-            y,
+            rollout_ids[test_mask],
+            prompts[test_mask],
+            y[test_mask],
             prediction,
         )
     ])
 
 
 def plot_instruction_trajectories(predictions, output_dir):
-    """Save one final-layer out-of-prompt trajectory plot per instruction."""
+    """Save one final-layer held-out prediction plot per test instruction."""
     try:
         import matplotlib.pyplot as plt
     except ImportError as exc:
@@ -295,13 +292,174 @@ def plot_instruction_trajectories(predictions, output_dir):
     return paths
 
 
+def descriptive_trajectory_frame(rows, lookup, final_layer, fractions):
+    """Describe reward, confidence, and hidden-state movement for every prompt."""
+    records = []
+    for row in rows:
+        stage = row["model_stage"]
+        rollout_id = row["rollout_id"]
+        start = lookup[(stage, final_layer, fractions[0], rollout_id)]
+        width = max(len(start), 1)
+        for fraction in fractions:
+            current = lookup[(stage, final_layer, fraction, rollout_id)]
+            records.append({
+                "rollout_id": rollout_id,
+                "prompt_id": str(row["prompt_id"]),
+                "instruction_text": str(row.get("prompt_text", "")),
+                "model_stage": stage,
+                "fraction": fraction,
+                "reward": float(row["reward"]),
+                "confidence": float(
+                    row["policy_signals"][f"{fraction:.2f}"][
+                        "geomean_token_prob"
+                    ]
+                ),
+                "activation_change_rms": float(
+                    np.linalg.norm(current - start) / math.sqrt(width)
+                ),
+            })
+    return pd.DataFrame(records)
+
+
+def faithfulness_correlations(descriptive):
+    rows = []
+    pairs = (
+        ("confidence", "reward"),
+        ("activation_change_rms", "reward"),
+        ("confidence", "activation_change_rms"),
+    )
+    for (stage, fraction), group in descriptive.groupby(
+        ["model_stage", "fraction"]
+    ):
+        for first, second in pairs:
+            rows.append({
+                "model_stage": stage,
+                "fraction": fraction,
+                "variable_1": first,
+                "variable_2": second,
+                "n": len(group),
+                "pearson": group[first].corr(group[second], method="pearson"),
+                "spearman": group[first].corr(group[second], method="spearman"),
+            })
+    return pd.DataFrame(rows)
+
+
+def constraint_analysis(rows, descriptive):
+    constraint_rows = []
+    for row in rows:
+        for result in row.get("constraint_results", []):
+            constraint_rows.append({
+                "rollout_id": row["rollout_id"],
+                "prompt_id": str(row["prompt_id"]),
+                "model_stage": row["model_stage"],
+                "instruction_id": result["instruction_id"],
+                "passed": float(result["passed"]),
+            })
+    if not constraint_rows:
+        return pd.DataFrame(), pd.DataFrame()
+
+    constraints = pd.DataFrame(constraint_rows)
+    difficulty = (
+        constraints.groupby(["model_stage", "instruction_id"])
+        .agg(
+            examples=("passed", "size"),
+            prompts=("prompt_id", "nunique"),
+            pass_rate=("passed", "mean"),
+        )
+        .reset_index()
+    )
+    merged = descriptive.merge(
+        constraints,
+        on=["rollout_id", "prompt_id", "model_stage"],
+        how="inner",
+    )
+    correlation_rows = []
+    for (stage, fraction, instruction_id), group in merged.groupby(
+        ["model_stage", "fraction", "instruction_id"]
+    ):
+        for variable in ("confidence", "activation_change_rms"):
+            correlation_rows.append({
+                "model_stage": stage,
+                "fraction": fraction,
+                "instruction_id": instruction_id,
+                "variable": variable,
+                "n": len(group),
+                "prompts": group["prompt_id"].nunique(),
+                "pearson_with_pass": group[variable].corr(
+                    group["passed"], method="pearson"
+                ),
+                "spearman_with_pass": group[variable].corr(
+                    group["passed"], method="spearman"
+                ),
+            })
+    return difficulty, pd.DataFrame(correlation_rows)
+
+
+def plot_descriptive_instruction_trajectories(descriptive, output_dir):
+    """Plot every instruction, without using fitted probe predictions."""
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as exc:
+        raise RuntimeError(
+            "Instruction trajectory plots require matplotlib. "
+            "Run `pip install -r requirements.txt`."
+        ) from exc
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    measures = (
+        ("reward", "Terminal reward"),
+        ("confidence", "Generated-token confidence"),
+        ("activation_change_rms", "Activation change (RMS)"),
+    )
+    paths = []
+    for index, (prompt_id, prompt_df) in enumerate(descriptive.groupby("prompt_id")):
+        instruction_text = str(prompt_df["instruction_text"].iloc[0]).strip()
+        title_text = instruction_text[:140] if instruction_text else str(prompt_id)
+        fig, axes = plt.subplots(
+            len(measures),
+            1,
+            figsize=(8, 8),
+            sharex=True,
+            constrained_layout=True,
+        )
+        for axis, (measure, label) in zip(axes, measures):
+            for stage, stage_df in prompt_df.groupby("model_stage"):
+                summary = (
+                    stage_df.groupby("fraction")[measure]
+                    .agg(["mean", "std"])
+                    .reset_index()
+                )
+                x = summary["fraction"].to_numpy()
+                mean = summary["mean"].to_numpy()
+                std = summary["std"].fillna(0).to_numpy()
+                line = axis.plot(x, mean, marker="o", label=stage)[0]
+                axis.fill_between(
+                    x,
+                    mean - std,
+                    mean + std,
+                    color=line.get_color(),
+                    alpha=0.12,
+                )
+            axis.set_ylabel(label)
+        axes[0].legend(title="checkpoint", ncol=4, fontsize=8)
+        axes[-1].set_xlabel("Trajectory fraction")
+        fig.suptitle(title_text)
+
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(prompt_id))[:60]
+        path = output_dir / f"instruction-{index:03d}-{safe_id}.png"
+        fig.savefig(path, dpi=160)
+        plt.close(fig)
+        paths.append((str(prompt_id), path))
+    return paths
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rollouts", required=True)
     parser.add_argument("--activations", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--ridge-alpha", type=float, default=10.0)
-    parser.add_argument("--rbf-alpha", type=float, default=1.0)
+    parser.add_argument("--test-size", type=float, default=0.25)
     parser.add_argument("--n-label-shuffles", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
     add_wandb_args(parser)
@@ -316,6 +474,11 @@ def main():
     stages = sorted(set(activations["model_stages"]))
     layers = sorted(set(activations["layers"]))
     fractions = sorted(set(activations["fractions"]))
+    train_prompts, test_prompts = split_by_prompt(
+        rows,
+        test_size=args.test_size,
+        seed=args.seed,
+    )
     rng = np.random.default_rng(args.seed)
     metric_rows = []
     prediction_rows = []
@@ -335,13 +498,14 @@ def main():
                 policy_y,
                 policy_prompts,
                 policy_ids,
+                train_prompts,
+                test_prompts,
                 stage,
                 -1,
                 fraction,
                 "policy_confidence_ridge",
-                "ridge",
                 args.ridge_alpha,
-                0,
+                args.n_label_shuffles,
                 rng,
             )
 
@@ -356,29 +520,14 @@ def main():
                     y,
                     prompts,
                     rollout_ids,
+                    train_prompts,
+                    test_prompts,
                     stage,
                     layer,
                     fraction,
                     "current_ridge",
-                    "ridge",
                     args.ridge_alpha,
                     args.n_label_shuffles,
-                    rng,
-                )
-                append_evaluation(
-                    metric_rows,
-                    prediction_rows,
-                    X,
-                    y,
-                    prompts,
-                    rollout_ids,
-                    stage,
-                    layer,
-                    fraction,
-                    "current_rbf",
-                    "rbf",
-                    args.rbf_alpha,
-                    0,
                     rng,
                 )
 
@@ -392,13 +541,33 @@ def main():
                     y,
                     prompts,
                     rollout_ids,
+                    train_prompts,
+                    test_prompts,
                     stage,
                     layer,
                     fraction,
                     "temporal_history_ridge",
-                    "ridge",
                     args.ridge_alpha,
-                    0,
+                    args.n_label_shuffles,
+                    rng,
+                )
+
+                combined_X = np.concatenate([X, policy_X], axis=1)
+                append_evaluation(
+                    metric_rows,
+                    prediction_rows,
+                    combined_X,
+                    y,
+                    prompts,
+                    rollout_ids,
+                    train_prompts,
+                    test_prompts,
+                    stage,
+                    layer,
+                    fraction,
+                    "current_plus_confidence_ridge",
+                    args.ridge_alpha,
+                    args.n_label_shuffles,
                     rng,
                 )
 
@@ -413,13 +582,14 @@ def main():
                         y,
                         prompts,
                         rollout_ids,
+                        train_prompts,
+                        test_prompts,
                         stage,
                         layer,
                         fraction,
                         "activation_delta_ridge",
-                        "ridge",
                         args.ridge_alpha,
-                        0,
+                        args.n_label_shuffles,
                         rng,
                     )
 
@@ -435,11 +605,35 @@ def main():
         instruction_text
     ).fillna("")
     metrics_path = output_dir / "probe_metrics.csv"
-    predictions_path = output_dir / "oof_predictions.csv"
+    predictions_path = output_dir / "heldout_predictions.csv"
+    descriptive = descriptive_trajectory_frame(
+        rows,
+        lookup,
+        int(max(layers)),
+        fractions,
+    )
+    descriptive_path = output_dir / "instruction_trajectories.csv"
+    correlations = faithfulness_correlations(descriptive)
+    correlations_path = output_dir / "faithfulness_correlations.csv"
+    constraint_difficulty, constraint_correlations = constraint_analysis(
+        rows,
+        descriptive,
+    )
+    constraint_difficulty_path = output_dir / "constraint_difficulty.csv"
+    constraint_correlations_path = output_dir / "constraint_correlations.csv"
     metrics.to_csv(metrics_path, index=False)
     predictions.to_csv(predictions_path, index=False)
+    descriptive.to_csv(descriptive_path, index=False)
+    correlations.to_csv(correlations_path, index=False)
+    if len(constraint_difficulty):
+        constraint_difficulty.to_csv(constraint_difficulty_path, index=False)
+        constraint_correlations.to_csv(constraint_correlations_path, index=False)
     image_paths = plot_instruction_trajectories(
         predictions,
+        output_dir / "heldout_probe_trajectories",
+    )
+    descriptive_image_paths = plot_descriptive_instruction_trajectories(
+        descriptive,
         output_dir / "instruction_trajectories",
     )
 
@@ -447,9 +641,9 @@ def main():
         args,
         job_type="probe-evaluation",
         config={
-            "validation": "leave-one-prompt-out",
+            "validation": "single-fixed-prompt-holdout",
+            "test_size": args.test_size,
             "ridge_alpha": args.ridge_alpha,
-            "rbf_alpha": args.rbf_alpha,
             "n_label_shuffles": args.n_label_shuffles,
             "seed": args.seed,
         },
@@ -459,8 +653,11 @@ def main():
 
         run.log({
             "evaluation/metrics": wandb.Table(dataframe=metrics),
-            "evaluation/oof_predictions": wandb.Table(dataframe=predictions),
-            "evaluation/instruction_trajectories": wandb.Table(
+            "evaluation/heldout_predictions": wandb.Table(dataframe=predictions),
+            "evaluation/faithfulness_correlations": wandb.Table(
+                dataframe=correlations
+            ),
+            "evaluation/heldout_probe_trajectories": wandb.Table(
                 columns=["prompt_id", "instruction_text", "trajectory"],
                 data=[
                     [
@@ -471,7 +668,27 @@ def main():
                     for prompt_id, path in image_paths
                 ],
             ),
+            "evaluation/instruction_trajectories": wandb.Table(
+                columns=["prompt_id", "instruction_text", "trajectory"],
+                data=[
+                    [
+                        prompt_id,
+                        instruction_text.get(prompt_id, ""),
+                        wandb.Image(str(path)),
+                    ]
+                    for prompt_id, path in descriptive_image_paths
+                ],
+            ),
         })
+        if len(constraint_difficulty):
+            run.log({
+                "evaluation/constraint_difficulty": wandb.Table(
+                    dataframe=constraint_difficulty
+                ),
+                "evaluation/constraint_correlations": wandb.Table(
+                    dataframe=constraint_correlations
+                ),
+            })
         final_layer = int(metrics["layer"].max())
         curve_data = metrics[
             (metrics["layer"] == final_layer)
@@ -490,17 +707,19 @@ def main():
             ys.append(group["r2"].tolist())
         if labels:
             run.log({
-                "evaluation/final_layer_oof_r2": wandb.plot.line_series(
+                "evaluation/final_layer_heldout_r2": wandb.plot.line_series(
                     xs=xs,
                     ys=ys,
                     keys=labels,
-                    title=f"Final-layer out-of-prompt R2 (layer {final_layer})",
+                    title=f"Final-layer held-out R2 (layer {final_layer})",
                     xname="trajectory fraction",
                 )
             })
         run.summary["rollouts"] = len(rows)
         run.summary["prompts"] = len({str(row["prompt_id"]) for row in rows})
         run.summary["model_stages"] = stages
+        run.summary["train_prompts"] = sorted(train_prompts)
+        run.summary["test_prompts"] = sorted(test_prompts)
         artifact = wandb.Artifact(
             f"{args.wandb_run_name or 'probe-evaluation'}-outputs",
             type="probe-results",
@@ -510,8 +729,13 @@ def main():
         run.finish()
 
     print(f"Saved metrics -> {metrics_path}")
-    print(f"Saved out-of-prompt predictions -> {predictions_path}")
-    print(f"Saved {len(image_paths)} instruction trajectory plots")
+    print(f"Saved held-out predictions -> {predictions_path}")
+    print(f"Saved correlations -> {correlations_path}")
+    if len(constraint_difficulty):
+        print(f"Saved constraint difficulty -> {constraint_difficulty_path}")
+        print(f"Saved constraint correlations -> {constraint_correlations_path}")
+    print(f"Saved {len(descriptive_image_paths)} instruction trajectory plots")
+    print(f"Saved {len(image_paths)} held-out probe trajectory plots")
 
 
 if __name__ == "__main__":

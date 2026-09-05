@@ -5,26 +5,29 @@ import numpy as np
 from evaluate_probes import (
     activation_features,
     activation_lookup,
-    leave_one_prompt_out_predictions,
+    heldout_predictions,
 )
 
 
 class EvaluationProbeTest(unittest.TestCase):
-    def test_leave_one_prompt_out_predicts_every_rollout(self):
+    def test_fixed_prompt_holdout_predicts_only_test_rollouts(self):
         rng = np.random.default_rng(0)
         prompts = np.repeat(["p0", "p1", "p2", "p3"], 2)
         X = rng.normal(size=(8, 5))
         y = X[:, 0] + 0.1 * rng.normal(size=8)
 
-        predictions = leave_one_prompt_out_predictions(
+        predictions, train_mask, test_mask = heldout_predictions(
             X,
             y,
             prompts,
-            model_kind="ridge",
+            train_prompts={"p0", "p1", "p2"},
+            test_prompts={"p3"},
             alpha=1.0,
         )
 
-        self.assertEqual(len(predictions), len(y))
+        self.assertEqual(train_mask.sum(), 6)
+        self.assertEqual(test_mask.sum(), 2)
+        self.assertEqual(len(predictions), 2)
         self.assertTrue(np.isfinite(predictions).all())
 
     def test_history_features_concatenate_prior_states(self):
