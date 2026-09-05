@@ -1,0 +1,20 @@
+name: rl-interp
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - torch>=2.6
+      - transformers>=4.57
+      - wandb>=0.22.3
+      - accelerate>=1.2
+      - absl-py>=2.1
+      - datasets>=3.2
+      - immutabledict==1.2.0
+      - langdetect==1.0.9
+      - nltk>=3.9.1
+      - numpy>=1.26
+      - pandas>=2.2
+      - scikit-learn>=1.5
+      - safetensors>=0.4
