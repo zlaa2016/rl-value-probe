@@ -104,6 +104,8 @@ The merged local dataset contains:
 
 The merged files are in `outputs/all-models-six-5ro/`.
 
+Publication-ready summary figures are tracked in `figures/`.
+
 ## Probe evaluation
 
 `evaluate_probes.py` makes one fixed train/test split grouped by prompt. With
