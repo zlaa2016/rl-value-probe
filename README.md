@@ -149,8 +149,8 @@ the matching command-line flags.
 `run_mvp.py` logs live rollout rewards and a trajectory table containing the
 partial text and policy-confidence signals at 25%, 50%, 75%, and 100%. It also
 creates trajectory charts comparing model stages. `probe.py` logs the full
-probe-results table and the best held-out activation-probe R2 at each trajectory
-fraction. It also uploads the saved rollout trajectories, so outputs produced by
+probe-results table and the pre-specified final-layer held-out probe R2 at each
+trajectory fraction. It also uploads the saved rollout trajectories, so outputs produced by
 an already-running older process can be visualized without regeneration.
 `pomdp.py` logs its three AUC curves.
 
@@ -206,9 +206,13 @@ outputs/probe_results.csv
 For each model stage it reports:
 
 - ridge regression on activations
+- ridge regression on within-rollout activation changes between consecutive fractions
 - a separate ridge diagnostic on policy-confidence signals
+- a shuffled-training-label null distribution and permutation p-values
 
 All train/test splits are grouped by prompt to avoid putting different rollouts of the same prompt in train and test.
+The default null uses 50 label shuffles; increase it for final analyses with
+`python probe.py --n-label-shuffles 200`.
 
 ## Push to GitHub
 

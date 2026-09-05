@@ -134,6 +134,9 @@ def main():
                     "rollout_index": rollout_idx,
                     "reward": reward,
                     "generated_text": result["text"],
+                    # Preserve the exact trajectory for future teacher-forced
+                    # replay through every checkpoint.
+                    "generated_token_ids": generated_ids.tolist(),
                     "partial_text": partial_texts(
                         tokenizer,
                         generated_ids,
