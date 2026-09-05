@@ -211,6 +211,21 @@ python merge_outputs.py outputs/local-base outputs/kaggle-posttrained \
   --output-dir outputs/all-models
 ```
 
+Download a raw W&B artifact and verify that rollout IDs match activation IDs:
+
+```bash
+python download_wandb_artifact.py \
+  zl6113-new-york-university/rl-interp/all-models-six-raw:latest \
+  --output-dir outputs/artifacts/all-models-six
+```
+
+For the main analysis, `evaluate_probes.py` uses leave-one-prompt-out predictions
+for every instruction. Ridge is the primary linear-decoding test, RBF kernel
+ridge is a nonlinear sensitivity analysis, and cumulative activation-history
+Ridge is the temporal model. It also evaluates adjacent activation deltas and
+the policy-confidence baseline, writes predictions and metrics to CSV, and
+creates one final-layer trajectory plot per instruction.
+
 The NPZ stores hidden vectors indexed by rollout, layer, and trajectory fraction.
 
 `probe.py` writes:

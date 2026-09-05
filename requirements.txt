@@ -6,6 +6,7 @@ absl-py>=2.1
 datasets>=3.2
 immutabledict==1.2.0
 langdetect==1.0.9
+matplotlib>=3.8
 nltk>=3.9.1
 numpy>=1.26
 pandas>=2.2

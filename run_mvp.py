@@ -278,6 +278,7 @@ def main():
                     "model_stage": stage,
                     "model_name": model_name,
                     "prompt_id": key[1],
+                    "prompt_text": str(row.get("prompt", "")),
                     "rollout_index": rollout_idx,
                     "reward": reward,
                     "generated_text": result["text"],
