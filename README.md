@@ -148,8 +148,10 @@ probe_metrics.csv
 heldout_predictions.csv
 instruction_trajectories.csv
 faithfulness_correlations.csv
+trajectory_correlation_with_terminal_reward.png
 constraint_difficulty.csv              # when constraint annotations exist
 constraint_correlations.csv            # when constraint annotations exist
+constraint_pass_rates.png              # when constraint annotations exist
 instruction_trajectories/*.png
 heldout_probe_trajectories/*.png
 ```

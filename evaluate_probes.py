@@ -423,6 +423,142 @@ def constraint_analysis(rows, descriptive):
     return difficulty, pd.DataFrame(correlation_rows)
 
 
+def plot_trajectory_reward_correlations(correlations, output_path):
+    """Plot confidence/reward and activation-change/reward correlations."""
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as exc:
+        raise RuntimeError(
+            "Summary plots require matplotlib. "
+            "Run `pip install -r requirements.txt`."
+        ) from exc
+
+    stage_order = [
+        stage for stage in ("base", "sft", "dpo", "rlvr")
+        if stage in set(correlations["model_stage"])
+    ]
+    fig, axes = plt.subplots(
+        2,
+        2,
+        figsize=(10, 7),
+        sharex=True,
+        sharey=True,
+        constrained_layout=False,
+    )
+    axes = np.asarray(axes).reshape(-1)
+    series = (
+        ("confidence", "Confidence", "o"),
+        ("activation_change_rms", "Activation change", "s"),
+    )
+    for axis, stage in zip(axes, stage_order):
+        stage_rows = correlations[
+            (correlations["model_stage"] == stage)
+            & (correlations["variable_2"] == "reward")
+        ]
+        for variable, label, marker in series:
+            values = stage_rows[
+                stage_rows["variable_1"] == variable
+            ].sort_values("fraction")
+            axis.plot(
+                values["fraction"],
+                values["pearson"],
+                marker=marker,
+                linewidth=2,
+                label=label,
+            )
+        axis.axhline(0, color="0.55", linewidth=1)
+        axis.set_title(stage.upper())
+        axis.set_xticks([0.25, 0.50, 0.75, 1.00])
+        axis.set_ylim(-0.5, 0.7)
+        axis.grid(alpha=0.2)
+    for axis in axes[len(stage_order):]:
+        axis.set_visible(False)
+    fig.supxlabel("Trajectory fraction")
+    fig.supylabel("Pearson correlation with terminal reward")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.suptitle("Trajectory correlation with terminal reward", y=0.98)
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.935),
+        ncol=2,
+        frameon=False,
+    )
+    fig.subplots_adjust(
+        left=0.11,
+        right=0.98,
+        bottom=0.10,
+        top=0.84,
+        wspace=0.08,
+        hspace=0.28,
+    )
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
+def plot_constraint_pass_rates(difficulty, output_path):
+    """Plot constraint pass rates without displaying prompt counts."""
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as exc:
+        raise RuntimeError(
+            "Summary plots require matplotlib. "
+            "Run `pip install -r requirements.txt`."
+        ) from exc
+
+    stage_order = [
+        stage for stage in ("base", "sft", "dpo", "rlvr")
+        if stage in set(difficulty["model_stage"])
+    ]
+    matrix = (
+        difficulty.pivot(
+            index="instruction_id",
+            columns="model_stage",
+            values="pass_rate",
+        )
+        .reindex(columns=stage_order)
+        .sort_index()
+    )
+    labels = [
+        value.replace(":", " · ").replace("_", " ")
+        for value in matrix.index
+    ]
+    height = max(5.5, 0.48 * len(matrix))
+    fig, axis = plt.subplots(figsize=(10, height), constrained_layout=True)
+    image = axis.imshow(matrix.to_numpy(), vmin=0, vmax=1, cmap="Blues")
+    axis.set_xticks(range(len(stage_order)), [stage.upper() for stage in stage_order])
+    axis.set_yticks(range(len(labels)), labels)
+    axis.set_xlabel("Checkpoint")
+    axis.set_ylabel("Constraint")
+    axis.set_title("Constraint pass rates")
+    for row in range(len(matrix)):
+        for column in range(len(stage_order)):
+            value = matrix.iloc[row, column]
+            if pd.isna(value):
+                label = "—"
+            else:
+                label = f"{value:.0%}"
+            axis.text(
+                column,
+                row,
+                label,
+                ha="center",
+                va="center",
+                color="white" if value >= 0.6 else "black",
+            )
+    colorbar = fig.colorbar(image, ax=axis, shrink=0.8)
+    colorbar.set_label("Pass rate")
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return output_path
+
+
 def plot_descriptive_instruction_trajectories(descriptive, output_dir):
     """Plot every instruction, without using fitted probe predictions."""
     try:
@@ -656,6 +792,16 @@ def main():
     if len(constraint_difficulty):
         constraint_difficulty.to_csv(constraint_difficulty_path, index=False)
         constraint_correlations.to_csv(constraint_correlations_path, index=False)
+    trajectory_correlation_plot = plot_trajectory_reward_correlations(
+        correlations,
+        output_dir / "trajectory_correlation_with_terminal_reward.png",
+    )
+    constraint_pass_rate_plot = None
+    if len(constraint_difficulty):
+        constraint_pass_rate_plot = plot_constraint_pass_rates(
+            constraint_difficulty,
+            output_dir / "constraint_pass_rates.png",
+        )
     undefined_r2 = metrics["r2"].isna()
     if undefined_r2.any():
         stages_with_constant_targets = sorted(
@@ -718,6 +864,9 @@ def main():
                     for prompt_id, path in descriptive_image_paths
                 ],
             ),
+            "evaluation/trajectory_correlation_with_terminal_reward": (
+                wandb.Image(str(trajectory_correlation_plot))
+            ),
         })
         if len(constraint_difficulty):
             run.log({
@@ -726,6 +875,9 @@ def main():
                 ),
                 "evaluation/constraint_correlations": wandb.Table(
                     dataframe=constraint_correlations
+                ),
+                "evaluation/constraint_pass_rates": wandb.Image(
+                    str(constraint_pass_rate_plot)
                 ),
             })
         final_layer = int(metrics["layer"].max())
@@ -770,9 +922,11 @@ def main():
     print(f"Saved metrics -> {metrics_path}")
     print(f"Saved held-out predictions -> {predictions_path}")
     print(f"Saved correlations -> {correlations_path}")
+    print(f"Saved trajectory correlation plot -> {trajectory_correlation_plot}")
     if len(constraint_difficulty):
         print(f"Saved constraint difficulty -> {constraint_difficulty_path}")
         print(f"Saved constraint correlations -> {constraint_correlations_path}")
+        print(f"Saved constraint pass-rate plot -> {constraint_pass_rate_plot}")
     print(f"Saved {len(descriptive_image_paths)} instruction trajectory plots")
     print(f"Saved {len(image_paths)} held-out probe trajectory plots")
 
