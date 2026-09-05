@@ -202,6 +202,23 @@ python annotate_constraints.py \
 Use `rollouts-annotated.jsonl` as the `--rollouts` argument to obtain labeled
 instruction plots and constraint-level tables. The activation file is unchanged.
 
+## Evidence audit
+
+Probe accuracy is not treated as evidence by itself. `audit_evidence.py` checks
+whether reward varies within prompt, recomputes trajectory associations after
+prompt centering, measures leave-one-prompt-out sensitivity, compares terminal
+reward with the verifier state of partial text, and estimates checkpoint
+differences at the prompt level.
+
+```bash
+python audit_evidence.py
+```
+
+For the completed run, prompt identity accounts for 79.8--100% of reward
+variance within checkpoint, and only 4 of 24 checkpoint-by-prompt cells vary
+across rollouts. These facts make a high-dimensional probe score insufficient
+to identify a trajectory-specific value representation.
+
 ## Setup and authentication
 
 ```bash
@@ -232,6 +249,7 @@ Keys are not stored in the repository.
 | `merge_outputs.py` | Merge rollout directories with duplicate validation |
 | `annotate_constraints.py` | Add prompt text and per-constraint results to older runs |
 | `evaluate_probes.py` | Run held-out probes, null tests, correlations, and plots |
+| `audit_evidence.py` | Audit prompt confounding, outcome variation, and observable-prefix explanations |
 | `make_paper_figures.py` | Regenerate the four manuscript figures from saved outputs |
 | `paper.tex` | Results-grounded manuscript and appendix |
 | `paper_no_figures.tex` | Standalone manuscript version with figure blocks removed |
@@ -254,7 +272,8 @@ python -m unittest -v \
   test_probe.py \
   test_run_mvp.py \
   test_merge_outputs.py \
-  test_evaluate_probes.py
+  test_evaluate_probes.py \
+  test_audit_evidence.py
 ```
 
-The current suite contains 17 passing tests.
+The current suite contains 19 passing tests.

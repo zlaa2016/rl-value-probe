@@ -8,8 +8,8 @@ import pandas as pd
 
 from evaluate_probes import (
     plot_constraint_pass_rates,
-    plot_trajectory_reward_correlations,
 )
+from audit_evidence import trajectory_association_audit
 
 
 STAGES = ("base", "sft", "dpo", "rlvr")
@@ -96,15 +96,100 @@ def executive_summary_figure(rollouts, output_path):
     note_axis.text(
         0.5,
         0.58,
-        "120/120 responses reached the 128-token generation cap"
-        "    •    Held-out test rewards were all zero"
-        "    •    Probe R² is undefined",
+        "Prompt identity explains 80–100% of reward variance"
+        "    •    Only 4/24 prompt × checkpoint cells vary across rollouts"
+        "    •    Held-out R² is undefined",
         ha="center",
         va="center",
         fontweight="bold",
     )
-    figure.suptitle("Key results from the completed experiment", fontsize=16)
+    figure.suptitle("Key evidential findings from the completed experiment", fontsize=16)
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output_path, dpi=220, bbox_inches="tight")
+    plt.close(figure)
+
+
+def trajectory_association_figure(trajectories, output_path):
+    audit = trajectory_association_audit(trajectories)
+    feature_rows = (
+        ("confidence", "Generated-token confidence"),
+        ("activation_change_rms", "Activation change (RMS)"),
+    )
+    figure, axes = plt.subplots(
+        2,
+        4,
+        figsize=(13, 7),
+        sharex=True,
+        sharey=True,
+        constrained_layout=False,
+    )
+    for row_index, (feature, feature_label) in enumerate(feature_rows):
+        for column_index, (stage, stage_label) in enumerate(
+            zip(STAGES, STAGE_LABELS)
+        ):
+            axis = axes[row_index, column_index]
+            selected = audit[
+                (audit["feature"] == feature)
+                & (audit["model_stage"] == stage)
+            ].sort_values("fraction")
+            axis.plot(
+                selected["fraction"],
+                selected["pooled_pearson"],
+                marker="o",
+                linewidth=2,
+                label="Pooled",
+            )
+            axis.plot(
+                selected["fraction"],
+                selected["within_prompt_pearson"],
+                marker="s",
+                linestyle="--",
+                linewidth=2,
+                label="Within-prompt",
+            )
+            axis.axhline(0, color="0.5", linewidth=1)
+            axis.grid(alpha=0.18)
+            axis.set_ylim(-0.65, 0.8)
+            axis.set_xticks([0.25, 0.50, 0.75, 1.00])
+            if row_index == 0:
+                axis.set_title(stage_label)
+            if column_index == 0:
+                axis.set_ylabel(f"{feature_label}\nPearson correlation")
+            if row_index == 1:
+                axis.set_xlabel("Trajectory fraction")
+            if selected["within_prompt_pearson"].isna().all():
+                axis.text(
+                    0.625,
+                    -0.52,
+                    "Within-prompt undefined",
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color="0.35",
+                )
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    figure.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.925),
+        ncol=2,
+        frameon=False,
+    )
+    figure.suptitle(
+        "Pooled associations change after controlling for prompt identity",
+        y=0.985,
+        fontsize=15,
+    )
+    figure.subplots_adjust(
+        left=0.09,
+        right=0.99,
+        bottom=0.09,
+        top=0.82,
+        wspace=0.06,
+        hspace=0.10,
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output_path, dpi=220, bbox_inches="tight")
     plt.close(figure)
@@ -195,14 +280,13 @@ def main():
     output_dir = Path(args.output_dir)
     rollouts = load_jsonl(args.rollouts)
     trajectories = pd.read_csv(analysis_dir / "instruction_trajectories.csv")
-    correlations = pd.read_csv(analysis_dir / "faithfulness_correlations.csv")
     constraint_difficulty = pd.read_csv(
         analysis_dir / "constraint_difficulty.csv"
     )
 
     executive_summary_figure(rollouts, output_dir / "executive_summary.png")
-    plot_trajectory_reward_correlations(
-        correlations,
+    trajectory_association_figure(
+        trajectories,
         output_dir / "trajectory_correlation_with_terminal_reward.png",
     )
     plot_constraint_pass_rates(

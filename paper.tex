@@ -14,6 +14,7 @@
 \usepackage{booktabs}
 \usepackage{float}
 \usepackage{graphicx}
+\usepackage{tabularx}
 
 \newif\ifpaperfigures
 \ifdefined\NoPaperFigures
@@ -39,34 +40,34 @@ A Pilot Study Across OLMo 3 Checkpoints}
 
 \section*{Executive Summary}
 
-This pilot study asks whether intermediate language-model representations and
-token-level confidence correspond to terminal instruction-following reward.
-I evaluated matched OLMo 3 Base, SFT, DPO, and RLVR checkpoints on six
-instruction-following prompts, with five stochastic rollouts per prompt and
-checkpoint. This produced 120 responses. Each response was scored with an
-IFEvalG constraint verifier, and hidden states and confidence statistics were
-recorded at 25\%, 50\%, 75\%, and 100\% of generation.
+This pilot asks whether intermediate representations and token-level confidence
+correspond to terminal instruction-following reward. I evaluated OLMo 3 Base,
+SFT, DPO, and RLVR checkpoints on six prompts with five stochastic rollouts per
+prompt and checkpoint, producing 120 responses. IFEvalG supplied
+constraint-level terminal rewards; hidden states and confidence were recorded
+at four generation fractions.
 
-Mean verifier reward increased modestly from 0.102 for Base to 0.137 for RLVR,
-but the change was concentrated in one prompt rather than distributed across
-the evaluation set. For SFT, DPO, and RLVR, confidence was positively
-correlated with reward early in generation but weakly or negatively correlated
-at completion. Activation movement exhibited checkpoint-specific correlations,
-including a terminal Pearson correlation of 0.390 for DPO, but no consistent
-pattern across checkpoints. The held-out reward probes were not evaluable:
-both test prompts had reward zero for every rollout, making held-out $R^2$
-undefined. In addition, every response reached the 128-token cap. The results
-therefore establish a working measurement pipeline and reveal descriptive
-confidence--behavior divergence, but they do not establish reliable reward
-decodability, causal faithfulness, or model generalization.
+The central result is a failure of identification, not a successful probe.
+Prompt identity explained 79.8--100\% of reward variance within checkpoint,
+and only four of 24 checkpoint-by-prompt cells varied across rollouts. Several
+pooled trajectory correlations changed sign after prompt centering; RLVR's
+75\% activation-change correlation changed from 0.417 to $-0.306$. At 25\%, a
+verifier applied directly to partial text already matched terminal reward in
+80--93\% of responses, showing how high predictive accuracy can arise without
+a latent value estimate. The held-out rewards were all zero, every response
+reached the 128-token cap, and the prompt-clustered interval for the
+RLVR-minus-Base mean included zero. The experiment therefore does not establish
+trajectory-specific reward decodability, causal faithfulness, or
+generalization; it identifies the controls and counterfactual variation needed
+to test those claims.
 
 \ifpaperfigures
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.94\linewidth]{figures/executive_summary.png}
     \caption{Key outcomes from the completed 120-rollout experiment. Aggregate
-    reward changes were small, prompt effects were large, every response hit
-    the generation cap, and the held-out reward target had zero variance.}
+    reward changes were small and concentrated, prompt identity dominated the
+    target, and the held-out reward target had zero variance.}
     \label{fig:executive-summary}
 \end{figure}
 \fi
@@ -92,24 +93,31 @@ programmatically checkable constraints to natural-language responses
 same OLMo model family, reducing architectural differences relative to a
 comparison of unrelated models \citep{groeneveld2024olmo,olmo3card}.
 
-The study asks three questions:
+The study asks three questions that are deliberately stricter than whether a
+probe can fit reward labels:
 
 \begin{enumerate}
-    \item How do hidden-state movement and policy confidence evolve during a
-    rollout, and how are they associated with terminal verifier reward?
-    \item Which instruction constraints are passed or failed across the four
-    checkpoints?
-    \item Can a linear probe trained on intermediate state predict terminal
-    reward on held-out prompt groups?
+    \item Within the same prompt, do stochastic rollouts with different
+    terminal outcomes also differ systematically in hidden state or policy
+    confidence?
+    \item Do internal features contain outcome information beyond prompt
+    identity and constraint progress already observable in the partial text?
+    \item Are changes across Base, SFT, DPO, and RLVR broad across prompts, or
+    concentrated in particular instructions and constraints?
 \end{enumerate}
 
-These questions concern \emph{internal--behavioral correspondence}. A
-correlation or successful probe would show that outcome information is
-available in a representation; it would not show that the representation
-causes the behavior. Similarly, the comparison across checkpoints is
-descriptive. Although prior work has contrasted memorization under SFT with
-generalization under outcome-based RL \citep{chu2025sft}, the present data do
-not provide the unseen task variants required to test that claim.
+These questions concern \emph{internal--behavioral correspondence}. Even
+perfect held-out prediction would establish only that reward is decodable
+under a particular data split. It would not show that the model uses the
+decoded direction, that the signal estimates future reward rather than
+restating visible prefix content, or that it transfers across tasks and model
+stages. Evidence for those stronger claims would require incremental prediction
+over observable controls, robustness across prompt families, matched-prefix
+comparisons, and ultimately intervention. Similarly, the comparison across
+checkpoints is descriptive. Although prior work has contrasted memorization
+under SFT with generalization under outcome-based RL \citep{chu2025sft}, the
+present data do not provide the unseen task variants required to test that
+claim.
 
 \section{Related Work}
 
@@ -251,6 +259,38 @@ ID and checkpoint. These statistics pool the 30 rollouts from each checkpoint;
 because five rollouts share each prompt, they are treated as descriptive rather
 than as independent inferential observations.
 
+\subsection{Evidential Audit}
+
+The initial pooled analysis can confound two questions: whether some prompts
+are generally easier than others, and whether the model's evolving state
+distinguishes successful from unsuccessful rollouts of the \emph{same} prompt.
+I therefore performed four post-hoc identification checks that do not fit an
+additional activation probe.
+
+First, I decomposed reward variation into between-prompt and within-prompt
+components for each checkpoint. The between-prompt share is the in-sample
+$R^2$ obtained by predicting every rollout with its prompt's mean reward. It is
+therefore a prompt-identity baseline, not an internal-state model. Second, I
+recomputed each trajectory correlation after subtracting the corresponding
+prompt mean from both the trajectory variable and reward. This fixed-effect
+correlation asks whether the association survives removal of average prompt
+difficulty. I also recorded its range under leave-one-prompt-out sensitivity
+analysis.
+
+Third, I applied the same external constraint verifier to the saved partial
+text at each trajectory fraction. This diagnostic measures how much apparent
+early predictability is available directly from observable constraint progress,
+without activations. It is not treated as a valid early reward by itself:
+several constraints are non-monotonic, and agreement can be inflated when both
+prefix and terminal scores are zero.
+
+Fourth, checkpoint differences were computed at the prompt level rather than
+treating 30 rollouts as independent. For each post-trained checkpoint I report
+the six paired prompt differences from Base, a prompt-clustered percentile
+bootstrap interval, and an exact paired sign-flip test. With only six prompt
+clusters these quantities are sensitivity summaries, not precise population
+estimates.
+
 \subsection{Held-Out Reward Probes}
 
 Ridge-regression probes were fit separately for each checkpoint, layer, and
@@ -270,7 +310,13 @@ training set and two in the test set. All five rollouts from a prompt remained
 in the same split. The statistical null permuted complete prompt-level blocks
 of training rewards before refitting each probe. Recorded metrics included
 held-out $R^2$, mean squared error, rank correlation, and the prompt-block
-permutation distribution.
+permutation distribution. Each checkpoint-specific probe nevertheless had only
+20 training responses, compared with 4,096 current-state features and as many
+as 16,384 activation-history features. Regularization makes estimation
+possible, but does not make training fit or a single favorable split
+scientifically diagnostic. Probe evidence was therefore required to show
+non-degenerate held-out discrimination and improvement over observable
+controls; the completed data did not meet those requirements.
 
 \section{Results}
 
@@ -285,6 +331,15 @@ RLVR, whereas prompt 721-31 decreased from 0.3600 for Base to 0.2400 for RLVR.
 \ifpaperfigures
 Figure~\ref{fig:executive-summary} displays this heterogeneity.
 \fi
+
+At the prompt level, the RLVR-minus-Base differences were positive for one
+prompt, negative for one, and exactly zero for four. The mean paired difference
+was 0.0356, but its prompt-clustered bootstrap interval was
+$[-0.060,0.167]$ and the exact paired sign-flip $p$-value was 1.0. SFT and DPO
+showed the same one-positive, one-negative, four-unchanged pattern, with
+intervals that also included zero. These summaries do not demonstrate a
+checkpoint-level improvement; they show that the aggregate ordering can be
+produced by two influential prompts.
 
 \begin{table}[t]
 \centering
@@ -306,7 +361,28 @@ RLVR & 0.1372 & 0.1466 & 0.0000 & 0.4000 \\
 
 All 120 generations contained exactly 128 generated tokens. The maximum-token
 limit therefore censored every response, including responses evaluated with
-completion-sensitive constraints.
+completion-sensitive constraints. Strictly, the recorded $R_T$ is a verifier
+score at an imposed cutoff, not reward at a model-selected terminal state. This
+distinction is especially consequential for final-word, exact-length, and
+complete-structure requirements.
+
+\subsection{Reward Was Nearly Determined by Prompt Identity}
+
+Only four of the 24 checkpoint-by-prompt cells contained more than one reward
+value across their five stochastic rollouts. DPO had no within-prompt reward
+variation at all; Base and RLVR each had one varying prompt, and SFT had two.
+Predicting each rollout with its prompt's mean reward accounted for 95.3\% of
+reward variance for Base, 79.8\% for SFT, 100\% for DPO, and 94.9\% for RLVR.
+
+This result changes the interpretation of any high probe score. Hidden states
+are functions of the prompt and can encode prompt identity, while the activation
+vector has far more dimensions than there are prompt groups. Consequently, a
+probe may recover nearly all reward variance by identifying which prompt
+produced the activation, without representing rollout-specific future success.
+Repeated generations
+increase the number of rows from six to 30 per checkpoint, but when their
+outcomes are constant within prompt they do not create the counterfactual
+variation required to distinguish prompt recognition from value estimation.
 
 \subsection{Constraint Outcomes Were Sparse and Highly Specific}
 
@@ -342,7 +418,7 @@ checkpoints. Because constraint identity is nearly confounded with prompt
 identity in this sample, these values describe the six selected prompts rather
 than general constraint-level capabilities.
 
-\subsection{Confidence and Activation Movement Followed Different Trajectories}
+\subsection{Pooled Trajectory Correlations Did Not Survive Identification Checks}
 
 Mean generated-token confidence increased across the Base trajectory, from
 0.626 at 25\% to 0.698 at completion. In contrast, mean confidence decreased
@@ -371,10 +447,11 @@ $-0.374$. Base remained weakly positive, ending at 0.210.
 \begin{figure}[t]
     \centering
     \includegraphics[width=\linewidth]{figures/trajectory_correlation_with_terminal_reward.png}
-    \caption{Pearson correlation of generated-token confidence and final-layer
-    activation-change RMS with terminal reward. Activation change at 25\% is
-    undefined because that position is the zero-distance reference. Values are
-    descriptive and pool rollouts within checkpoint.}
+    \caption{Pooled and prompt-centered Pearson correlations with terminal
+    reward. The differences between solid and dashed lines expose prompt-level
+    confounding. Within-prompt values are undefined when a checkpoint has no
+    reward variation within any prompt. Activation change at 25\% is undefined
+    because that position is the zero-distance reference.}
     \label{fig:trajectory-correlations}
 \end{figure}
 \fi
@@ -382,9 +459,38 @@ $-0.374$. Base remained weakly positive, ending at 0.210.
 Activation-change correlation was not consistent across checkpoints. DPO rose
 from 0.185 at 50\% to 0.390 at completion. RLVR rose from 0.271 at 50\% to
 0.417 at 75\%, then fell to 0.052 at completion. SFT and Base ended at 0.134
-and 0.188. These patterns show that policy confidence and representation
-movement are not interchangeable measurements, but the sample does not support
-an inferential claim that either reliably tracks reward.
+and 0.188.
+
+These pooled coefficients do not isolate trajectory-specific information. At
+25\%, SFT confidence had a pooled correlation of 0.560 but a prompt-centered
+correlation of $-0.185$. At 75\%, RLVR activation change had a pooled
+correlation of 0.417 but a prompt-centered correlation of $-0.306$. DPO's
+within-prompt correlations were undefined at every fraction because each
+prompt had a constant reward across its five rollouts. Leave-one-prompt-out
+ranges were also wide: for example, Base confidence at 25\% ranged from
+$-0.116$ to 0.483, and SFT confidence at completion ranged from $-0.466$ to
+0.068. Thus the apparent trajectory relationships are sensitive to prompt
+composition and, in several cases, reverse after prompt adjustment. They do not
+provide stable evidence that confidence or activation movement tracks future
+reward within a rollout.
+
+\subsection{Observable Prefix Status Was a Strong Competing Explanation}
+
+The external verifier was applied to each saved partial response as a diagnostic
+of information already visible in the text. At 25\% of generation, the prefix
+score exactly equaled the eventual terminal score for 93.3\% of Base responses,
+83.3\% of SFT responses, 83.3\% of DPO responses, and 80.0\% of RLVR responses.
+The corresponding pooled correlations with terminal reward were 0.964, 0.592,
+0.500, and 0.527. By 50\%, exact agreement ranged from 90.0\% to 96.7\%.
+
+These large values should not be interpreted as successful early prediction.
+They are inflated by prompt-specific constraints and by the many cases in which
+both prefix and terminal reward are zero. Instead, they demonstrate the main
+identification problem: a predictor can achieve impressive agreement without
+recovering a latent belief about future success. A meaningful activation result
+would have to improve on this observable-prefix information on prompts with
+genuine within-prompt outcome variation. The current held-out split cannot
+perform that comparison.
 
 \subsection{Held-Out Reward Decodability Was Not Evaluable}
 
@@ -403,38 +509,101 @@ failure in the pilot evaluation.
 
 \section{Discussion}
 
-The most defensible finding is a divergence between token-level confidence and
-verified instruction following. The post-trained checkpoints generated tokens
-with higher average probability than Base, yet their confidence--reward
-correlations became weak or negative near completion. In this sample, a sharp
-next-token distribution was therefore not a reliable substitute for the
-external constraint verifier. This matters for reward design: optimizing policy
-confidence alone could reinforce fluent, high-probability continuations that
-still miss exact output requirements.
+The experiment does not currently support its central hypothesis that
+trajectory-specific internal state provides a useful estimate of future
+terminal reward. This is not because a probe obtained a low score. It is
+because the data do not separate the proposed signal from simpler
+explanations. Prompt identity almost determines reward, partial text exposes
+much of the same structure, the held-out target is constant, and only a handful
+of prompt-by-checkpoint cells contain different outcomes across rollouts.
 
-The activation results are more tentative. Post-trained checkpoints moved
-farther from their 25\% hidden state than Base, and DPO showed a moderate
-positive terminal association between movement magnitude and reward. RLVR's
-association peaked at 75\% and nearly disappeared by completion. Because RMS
-distance discards direction, these results do not show that the state moved
-toward a shared ``reward direction.'' The held-out probe was intended to test
-directional, linearly accessible information, but constant test outcomes made
-that analysis uninformative.
+This distinction is essential for interpreting probes. A 100\% training score
+would be unsurprising in a setting with 20 training responses, 4,096--16,384
+activation features, and labels that are nearly deterministic functions of six
+prompt identities. Such a score would show that the representation contains
+enough information to reconstruct the dataset labels. It would not show that the
+model maintains a value estimate, that the decoded feature precedes the
+outcome, or that the model uses it to select behavior. Even a high held-out
+score can remain ambiguous if the split preserves the same constraint
+templates or if an observable prefix baseline performs equally well.
 
-Behavioral changes were also prompt-specific. The aggregate Base-to-RLVR gain
-was largely explained by prompt 639-88 and its exactly-once keyword constraint,
-while several structural requirements remained unsatisfied. The fact that all
-responses reached the token limit offers a plausible measurement explanation
-for failures involving final words, complete JSON, and exact document
-structure. It does not explain failures on every constraint, but it prevents a
-clean capability interpretation.
+The Base checkpoint is an experimental reference, not a sufficient statistical
+control for this inference. A stronger Base-to-RLVR probe does not by itself
+show that RL created or amplified a reward representation: RL may alter prompt
+encoding, residual scale, generated text, or separability without improving a
+model-internal estimate of future reward. Direct comparison of RMS distances
+across checkpoints is especially limited because the checkpoints inhabit
+different representation spaces and generate different token sequences.
 
-Finally, the checkpoint comparison cannot distinguish memorization from
-generalization. The prompts came from the RLVR training-source dataset, and the
-four checkpoints represent sequential stages rather than independently
-controlled SFT and RL treatments. The results can describe how these released
-checkpoints behaved; they cannot establish that RL generalized a capability
-already present in Base.
+The confidence results are therefore narrower than a claim that confidence is
+anti-faithful. Post-trained models were more confident on average, and their
+pooled confidence--reward association became negative late in generation. But
+prompt centering changed several coefficients substantially or reversed their
+sign. The supported conclusion is that confidence was not a stable surrogate
+for IFEvalG reward in this sample. The study does not establish a general
+negative relationship between confidence and instruction following.
+
+Likewise, the aggregate reward ordering is not evidence that post-training
+improved instruction following generally. Four prompts were unchanged between
+Base and RLVR, one improved, and one worsened. All responses were length
+censored, and the prompts came from an RLVR training-source distribution. The
+comparison therefore cannot distinguish memorization, elicitation, or
+generalization.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Inferential status of the motivating claims. ``Not established''
+means that the completed design contains some relevant measurements but does
+not identify the claim; ``not tested'' means the required comparison was not
+part of the experiment.}
+\label{tab:claim-audit}
+\begin{tabularx}{\linewidth}{p{0.25\linewidth} X p{0.30\linewidth}}
+\toprule
+Claim & Required evidence & Status in this experiment \\
+\midrule
+Internal trajectories estimate future reward & Within-prompt outcome
+variation and held-out improvement beyond observable prefix controls & Not
+established: reward was nearly fixed by prompt and the held-out target was
+constant. \\
+Confidence is a faithful reward proxy & Stable prompt-adjusted association and
+incremental validity over direct constraint status & Not established: pooled
+coefficients were prompt-sensitive and sometimes reversed. \\
+Post-training improves instruction following & Broad paired gains across
+prompts without truncation confounding & Not established: one prompt improved,
+one worsened, four were unchanged, and all outputs were capped. \\
+RL generalizes what Base already knows & Evaluation on unseen task variants and
+cross-stage transfer on comparable inputs & Not tested: prompts came from the
+RLVR training-source distribution. \\
+The decoded direction causally guides behavior & Controlled activation
+intervention followed by changed continuation reward & Not tested: the study
+was observational. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{What Would Constitute Stronger Evidence}
+
+A decisive follow-up should make the unit of analysis a prefix state rather
+than a completed response. For each saved prefix, multiple independent suffixes
+should be sampled from the \emph{same} prefix, and their mean verifier outcome
+should estimate the continuation value
+
+\begin{equation}
+V(h_t) = \mathbb{E}[R_T\mid x,y_{\leq t}].
+\end{equation}
+
+The dataset should contain many such prefixes with non-degenerate continuation
+outcomes, drawn from held-out prompt and constraint families. An activation
+probe would then be informative only if it predicted this estimated value on
+held-out families, improved over policy confidence and current partial-verifier
+status, remained stable across resampling and model stages, and beat a
+prompt-block permutation null. To isolate weight changes, all checkpoints
+should also be evaluated on identical teacher-forced prefixes before comparing
+their representations. Finally, intervention along a reproducible reward
+direction followed by resampling would be needed to move from decodability to a
+causal claim. These tests address value representation, transfer, and causal
+use separately instead of collapsing them into one probe metric.
 
 \section{Limitations}
 
@@ -444,9 +613,23 @@ sampling variation for those prompts but do not substitute for broader prompt
 coverage. Prompt identity is also strongly associated with both reward and
 constraint identity.
 
+\paragraph{Insufficient within-prompt outcome variation.}
+Twenty of the 24 checkpoint-by-prompt cells have constant reward across all
+five rollouts. The nominal sample size of 120 therefore overstates the amount
+of information available for distinguishing trajectory success from prompt
+difficulty.
+
+\paragraph{High-dimensional, low-sample probes.}
+Each checkpoint-specific split provides 20 training responses. Current-state
+features have 4,096 dimensions, and activation histories have up to 16,384.
+Ridge regularization limits coefficient magnitude but cannot make in-sample fit
+or one split evidence of a general reward representation.
+
 \paragraph{Universal length censoring.}
 Every response reached the 128-token maximum. The measured reward therefore
-combines instruction-following performance with truncation effects.
+combines instruction-following performance with truncation effects and should
+be interpreted as cutoff reward rather than reward on a naturally completed
+trajectory.
 
 \paragraph{Degenerate held-out target.}
 Both test prompts had constant zero reward. The central held-out probe analysis
@@ -464,7 +647,16 @@ differences may therefore reflect both changed weights and changed tokens.
 \paragraph{Coarse, single-token activation sampling.}
 Only four positions and four layers were retained. Each activation represents
 one token position rather than a pooled or token-complete trajectory, so brief
-or distributed signals may be missed.
+or distributed signals may be missed. The 100\% state is observed only after
+the final generated token and is therefore a post-outcome representation, not
+an early prediction. Four observations per response also do not support a
+well-identified time-series model of representation dynamics.
+
+\paragraph{Observable-prefix confounding.}
+Activations can encode prompt identity and surface features of the generated
+prefix. The post-hoc partial-verifier audit demonstrates that much of the
+terminal label is already predictable from those observables, but the current
+split cannot estimate whether activations add information beyond them.
 
 \paragraph{Observational analysis.}
 Correlations and probes test association and decodability. No activation
@@ -473,21 +665,32 @@ faithfulness.
 
 \paragraph{Narrow external objective.}
 IFEvalG reward measures explicit verifiable constraints. It does not measure
-all aspects of factual correctness, usefulness, or human preference.
+all aspects of factual correctness, usefulness, or human preference. It also
+normalizes by a prompt-specific number of heterogeneous constraints, so equal
+scalar rewards across prompts need not represent the same behavior.
 
 \section{Conclusion}
 
-This study implemented an end-to-end pipeline connecting stochastic language
-model rollouts, exact terminal constraint rewards, intermediate hidden states,
-and policy-confidence statistics across Base, SFT, DPO, and RLVR checkpoints.
-On the completed pilot, average reward increased slightly across post-training,
-but performance was dominated by prompt-specific constraints. Confidence and
-terminal reward diverged late in post-trained trajectories, while
-activation-change associations varied by checkpoint and time. Because the
-held-out test rewards were constant, the experiment did not establish terminal
-reward decodability. The principal outcome is therefore a validated measurement
-pipeline and a precise account of which data limitations prevent stronger
-claims.
+The completed pilot does not show that an LLM's intermediate trajectory
+contains a general, trajectory-specific representation of terminal
+instruction-following reward. The strongest empirical fact is that reward was
+nearly determined by prompt identity: a prompt-mean predictor explained
+79.8--100\% of variance within checkpoint, while most repeated-rollout cells
+had no outcome variation. Pooled activation and confidence correlations were
+therefore vulnerable to prompt confounding, and the held-out probe had no
+reward variance with which to test discrimination. Partial text also reproduced
+the terminal score at high rates, showing why predictive accuracy alone would
+not identify an internal value signal.
+
+The defensible conclusion is methodological. Probing is useful only after the
+experiment creates counterfactual variation in future outcomes from comparable
+prefix states and tests incremental information beyond observable behavior.
+Cross-prompt prediction, cross-checkpoint comparison, and causal intervention
+answer additional questions and should not be inferred from one another. The
+current pipeline supplies the required measurements, but the next experiment
+must redesign the sampling unit around branched continuations and balanced,
+held-out constraints before claims about value representation, RL-induced
+generalization, or faithfulness can be evaluated.
 
 \section{Acknowledgments}
 
@@ -518,7 +721,9 @@ The implementation contains the following components:
     \item fitting current-state, activation-history, activation-difference,
     confidence, and activation-plus-confidence Ridge probes;
     \item using a prompt-grouped fixed holdout and prompt-block shuffled-label
-    null; and
+    null;
+    \item auditing prompt-level variance, prompt-centered correlations,
+    leave-one-prompt-out sensitivity, and partial-text verifier status; and
     \item saving rollout, activation, prediction, correlation, plot, and W\&B
     artifact outputs.
 \end{itemize}
@@ -591,7 +796,11 @@ The analysis produced \texttt{rollouts-annotated.jsonl},
 \texttt{instruction\_trajectories.csv},
 \texttt{faithfulness\_correlations.csv},
 \texttt{constraint\_difficulty.csv}, and
-\texttt{constraint\_correlations.csv}. The code, figure generator, and paper
+\texttt{constraint\_correlations.csv}. The evidence audit additionally produced
+\texttt{checkpoint\_effect\_audit.csv},
+\texttt{reward\_variation\_audit.csv},
+\texttt{trajectory\_association\_audit.csv}, and
+\texttt{prefix\_verifier\_audit.csv}. The code, figure generator, and paper
 source are versioned in the accompanying repository.
 
 \end{document}
