@@ -176,6 +176,8 @@ python probe.py
 ```
 
 The script loads one model at a time, so you do not need memory for all four simultaneously.
+It prints the parameter placements after each load (for example `mps`, CUDA
+devices, CPU, or disk), making hardware use and offloading explicit.
 
 ## Outputs
 
@@ -198,6 +200,16 @@ Each rollout stores:
 Both output files are atomically checkpointed after every completed rollout.
 When W&B is enabled, they are also uploaded after each completed model stage,
 so a later Kaggle interruption does not erase all earlier-stage results.
+To extend an interrupted or smaller run, pass `--resume` with the same output
+directory and set `--n-rollouts` to the desired total per prompt. Existing
+stage/prompt/rollout-index combinations are retained and skipped.
+
+Runs produced on separate machines can be combined before probing:
+
+```bash
+python merge_outputs.py outputs/local-base outputs/kaggle-posttrained \
+  --output-dir outputs/all-models
+```
 
 The NPZ stores hidden vectors indexed by rollout, layer, and trajectory fraction.
 

@@ -11,6 +11,9 @@ def load_model(model_name: str):
         device_map="auto",
         attn_implementation="sdpa",
     )
+    device_map = getattr(model, "hf_device_map", {"": model.device})
+    placements = sorted({str(device) for device in device_map.values()})
+    print(f"Model parameter placements: {', '.join(placements)}")
     model.eval()
     return model, tokenizer
 

@@ -68,6 +68,54 @@ def save_outputs(
     activation_tmp.replace(activation_path)
 
 
+def load_outputs(rollout_path, activation_path):
+    """Load a matching rollout/activation checkpoint for --resume."""
+    rollouts_exist = rollout_path.exists()
+    activations_exist = activation_path.exists()
+    if rollouts_exist != activations_exist:
+        raise RuntimeError(
+            "Cannot resume because only one checkpoint file exists: "
+            f"{rollout_path} / {activation_path}"
+        )
+
+    if not rollouts_exist:
+        return ([], [], [], [], [], [])
+
+    with open(rollout_path) as f:
+        rollout_records = [json.loads(line) for line in f if line.strip()]
+
+    with np.load(activation_path, allow_pickle=True) as data:
+        activation_vectors = list(data["vectors"].copy())
+        activation_rollout_ids = data["rollout_ids"].astype(str).tolist()
+        activation_model_stages = data["model_stages"].astype(str).tolist()
+        activation_layers = data["layers"].astype(int).tolist()
+        activation_fractions = data["fractions"].astype(float).tolist()
+
+    activation_lengths = {
+        len(activation_vectors),
+        len(activation_rollout_ids),
+        len(activation_model_stages),
+        len(activation_layers),
+        len(activation_fractions),
+    }
+    if len(activation_lengths) != 1:
+        raise RuntimeError("Activation checkpoint arrays have mismatched lengths.")
+
+    return (
+        rollout_records,
+        activation_vectors,
+        activation_rollout_ids,
+        activation_model_stages,
+        activation_layers,
+        activation_fractions,
+    )
+
+
+def rollout_key(stage, row, prompt_idx, rollout_idx):
+    prompt_id = str(row.get("custom_id", prompt_idx))
+    return stage, prompt_id, int(rollout_idx)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -83,6 +131,14 @@ def main():
     parser.add_argument("--top-p", type=float, default=DEFAULT_TOP_P)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-dir", default="outputs")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume a checkpoint in --output-dir. --n-rollouts is the target "
+            "total per prompt; completed stage/prompt/index tuples are skipped."
+        ),
+    )
     add_wandb_args(parser)
     args = parser.parse_args()
 
@@ -110,18 +166,55 @@ def main():
             "temperature": args.temperature,
             "top_p": args.top_p,
             "seed": args.seed,
+            "resume": args.resume,
             "fractions": list(DEFAULT_FRACTIONS),
         },
     )
 
-    rollout_records = []
-    activation_vectors = []
-    activation_rollout_ids = []
-    activation_model_stages = []
-    activation_layers = []
-    activation_fractions = []
+    if args.resume:
+        (
+            rollout_records,
+            activation_vectors,
+            activation_rollout_ids,
+            activation_model_stages,
+            activation_layers,
+            activation_fractions,
+        ) = load_outputs(rollout_path, activation_path)
+        print(f"Resuming from {len(rollout_records)} completed rollouts.")
+    else:
+        rollout_records = []
+        activation_vectors = []
+        activation_rollout_ids = []
+        activation_model_stages = []
+        activation_layers = []
+        activation_fractions = []
+
+    existing_keys = {
+        (
+            record["model_stage"],
+            str(record["prompt_id"]),
+            int(record["rollout_index"]),
+        )
+        for record in rollout_records
+    }
+    if len(existing_keys) != len(rollout_records):
+        raise RuntimeError(
+            "The rollout checkpoint contains duplicate stage/prompt/index rows."
+        )
 
     for stage in args.models:
+        pending = any(
+            rollout_key(stage, row, prompt_idx, rollout_idx) not in existing_keys
+            for prompt_idx, row in enumerate(rows)
+            for rollout_idx in range(args.n_rollouts)
+        )
+        if not pending:
+            print(
+                f"\nSkipping {stage}: already has {args.n_rollouts} "
+                "rollouts per requested prompt."
+            )
+            continue
+
         model_name = MODELS[stage]
         print(f"\nLoading {stage}: {model_name}")
         model, tokenizer = load_model(model_name)
@@ -130,6 +223,10 @@ def main():
             prompt_ids = prompt_ids_from_row(row, tokenizer)
 
             for rollout_idx in range(args.n_rollouts):
+                key = rollout_key(stage, row, prompt_idx, rollout_idx)
+                if key in existing_keys:
+                    continue
+
                 if run is not None:
                     run.log({
                         "progress/rollouts_started": len(rollout_records) + 1,
@@ -180,7 +277,7 @@ def main():
                     "rollout_id": rollout_id,
                     "model_stage": stage,
                     "model_name": model_name,
-                    "prompt_id": str(row.get("custom_id", prompt_idx)),
+                    "prompt_id": key[1],
                     "rollout_index": rollout_idx,
                     "reward": reward,
                     "generated_text": result["text"],
@@ -199,6 +296,7 @@ def main():
                     },
                 }
                 rollout_records.append(record)
+                existing_keys.add(key)
 
                 for (layer, frac), vec in vectors.items():
                     activation_vectors.append(vec)

@@ -5,7 +5,7 @@ import unittest
 
 import numpy as np
 
-from run_mvp import save_outputs
+from run_mvp import load_outputs, rollout_key, save_outputs
 
 
 class IncrementalOutputCheckpointTest(unittest.TestCase):
@@ -31,6 +31,27 @@ class IncrementalOutputCheckpointTest(unittest.TestCase):
             activations = np.load(activation_path)
             np.testing.assert_allclose(activations["vectors"], [[1.0, 2.0]])
             self.assertEqual(activations["rollout_ids"].tolist(), ["r1"])
+
+            loaded = load_outputs(rollout_path, activation_path)
+            self.assertEqual(loaded[0][0]["rollout_id"], "r1")
+            np.testing.assert_allclose(loaded[1], [[1.0, 2.0]])
+            self.assertEqual(loaded[2], ["r1"])
+
+    def test_resume_key_uses_stage_prompt_and_rollout_index(self):
+        row = {"custom_id": "prompt-7"}
+        self.assertEqual(
+            rollout_key("base", row, 0, 3),
+            ("base", "prompt-7", 3),
+        )
+
+    def test_resume_requires_both_checkpoint_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            rollout_path = directory / "rollouts.jsonl"
+            rollout_path.write_text('{"rollout_id": "r1"}\n')
+
+            with self.assertRaisesRegex(RuntimeError, "only one checkpoint"):
+                load_outputs(rollout_path, directory / "activations.npz")
 
 
 if __name__ == "__main__":
