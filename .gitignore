@@ -12,8 +12,14 @@ wandb/
 
 # Manuscript/reporting files stay on this machine and are not published.
 README.md
-paper.tex
-paper_no_figures.tex
-references.bib
+*.tex
+*.bib
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+paper*.pdf
 make_paper_figures.py
 figures/
