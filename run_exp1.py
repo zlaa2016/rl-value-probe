@@ -16,6 +16,7 @@ from config import (
 )
 from data import load_if_prompts
 from generate import generate_rollout, load_model, prompt_ids_from_row
+from model_specs import resolve_model_specs, validate_resume_model_specs
 from rewards import ifeval_reward_details
 from tracking import add_wandb_args, init_wandb, log_rollout_trajectories
 
@@ -118,11 +119,22 @@ def rollout_key(stage, row, prompt_idx, rollout_idx):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    model_group = parser.add_mutually_exclusive_group()
+    model_group.add_argument(
         "--models",
         nargs="+",
-        default=["base", "sft"],
+        default=None,
         choices=list(MODELS),
+        help="Named released stages. Defaults to: base sft.",
+    )
+    model_group.add_argument(
+        "--model-specs",
+        nargs="+",
+        metavar="LABEL=MODEL_ID[@REVISION]",
+        help=(
+            "Revision-aware model states. Example: "
+            "pretrain10k=allenai/Olmo-3-1025-7B@stage1-step10000"
+        ),
     )
     parser.add_argument("--n-prompts", type=int, default=5)
     parser.add_argument("--n-rollouts", type=int, default=2)
@@ -142,6 +154,11 @@ def main():
     add_wandb_args(parser)
     args = parser.parse_args()
 
+    try:
+        model_specs = resolve_model_specs(args.models, args.model_specs)
+    except ValueError as exc:
+        parser.error(str(exc))
+
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
@@ -158,8 +175,14 @@ def main():
         args,
         job_type="rollout-generation",
         config={
-            "models": args.models,
-            "model_checkpoints": {stage: MODELS[stage] for stage in args.models},
+            "models": model_specs,
+            "model_checkpoints": {
+                spec["label"]: {
+                    "model_name": spec["model_name"],
+                    "revision": spec["revision"],
+                }
+                for spec in model_specs
+            },
             "n_prompts": args.n_prompts,
             "n_rollouts": args.n_rollouts,
             "max_new_tokens": args.max_new_tokens,
@@ -180,6 +203,10 @@ def main():
             activation_layers,
             activation_fractions,
         ) = load_outputs(rollout_path, activation_path)
+        try:
+            validate_resume_model_specs(rollout_records, model_specs)
+        except ValueError as exc:
+            parser.error(str(exc))
         print(f"Resuming from {len(rollout_records)} completed rollouts.")
     else:
         rollout_records = []
@@ -202,7 +229,8 @@ def main():
             "The rollout checkpoint contains duplicate stage/prompt/index rows."
         )
 
-    for stage in args.models:
+    for model_spec in model_specs:
+        stage = model_spec["label"]
         pending = any(
             rollout_key(stage, row, prompt_idx, rollout_idx) not in existing_keys
             for prompt_idx, row in enumerate(rows)
@@ -215,9 +243,10 @@ def main():
             )
             continue
 
-        model_name = MODELS[stage]
-        print(f"\nLoading {stage}: {model_name}")
-        model, tokenizer = load_model(model_name)
+        model_name = model_spec["model_name"]
+        model_revision = model_spec["revision"]
+        print(f"\nLoading {stage}: {model_name}@{model_revision}")
+        model, tokenizer = load_model(model_name, revision=model_revision)
 
         for prompt_idx, row in enumerate(rows):
             prompt_ids = prompt_ids_from_row(row, tokenizer)
@@ -278,6 +307,7 @@ def main():
                     "rollout_id": rollout_id,
                     "model_stage": stage,
                     "model_name": model_name,
+                    "model_revision": model_revision,
                     "prompt_id": key[1],
                     "prompt_text": str(row.get("prompt", "")),
                     "rollout_index": rollout_idx,

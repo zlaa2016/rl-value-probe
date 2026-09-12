@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from run_mvp import load_outputs, save_outputs
+from run_exp1 import load_outputs, save_outputs
 
 
 def merge_output_directories(input_dirs, output_dir):

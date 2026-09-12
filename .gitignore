@@ -9,9 +9,10 @@ external/
 .env.*
 !.env.example
 wandb/
+.pytest_cache/
 
-# Manuscript/reporting files stay on this machine and are not published.
-README.md
+# Manuscript sources and generated figures stay local. The final PDF report is
+# tracked separately as rl_probe_project.pdf.
 *.tex
 *.bib
 *.aux

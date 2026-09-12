@@ -5,7 +5,7 @@ import unittest
 
 import numpy as np
 
-from run_mvp import load_outputs, rollout_key, save_outputs
+from run_exp1 import load_outputs, rollout_key, save_outputs
 
 
 class IncrementalOutputCheckpointTest(unittest.TestCase):

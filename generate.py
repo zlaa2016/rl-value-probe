@@ -2,11 +2,12 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-def load_model(model_name: str):
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+def load_model(model_name: str, revision: str = "main"):
+    tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision)
 
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
+        revision=revision,
         dtype=torch.bfloat16,
         device_map="auto",
         attn_implementation="sdpa",

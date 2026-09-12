@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 
 from merge_outputs import merge_output_directories
-from run_mvp import load_outputs, save_outputs
+from run_exp1 import load_outputs, save_outputs
 
 
 def write_stage(directory, stage, rollout_id):
