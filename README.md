@@ -5,16 +5,52 @@ task reward before generation is complete. The key comparison is whether those
 states predict terminal reward beyond the prompt, generated text, response
 length, token identity, verifier progress, and model confidence.
 
-The first experiment evaluated Base, SFT, DPO, and RLVR variants of OLMo 3 on
-instruction-following constraints. It produced 120 rollouts and 1,920 saved
-activation vectors. The main finding is an identification problem: prompt
-identity explained 79.8--100% of reward variance within each model, and only 4
-of 24 model-by-prompt cells varied across repeated rollouts. The pilot therefore
-validates the extraction pipeline but does not establish an internal value
-function.
-
 Read the [project report](rl_probe_project.pdf) for the full experiment,
 results, and research motivation.
+
+## Data used
+
+- Dataset: `allenai/Dolci-Think-RL-7B`, pinned to revision
+  `0fb6466d31ef3a9dd16985ef635e6429e05a6491`.
+- Subset: `hamishivi/IF_multi_constraints_upto5_filtered`, containing prompts
+  with multiple explicit instruction-following constraints.
+- Sample: 6 prompts, 5 stochastic rollouts per prompt, and 4 model variants,
+  for 120 generated responses.
+- Models: `allenai/Olmo-3-1025-7B`, `allenai/Olmo-3-7B-Think-SFT`,
+  `allenai/Olmo-3-7B-Think-DPO`, and `allenai/Olmo-3-7B-Think`.
+- Terminal reward: fraction of IFEval constraints satisfied by the generated
+  response.
+- Saved measurements: generated text and token IDs, reward and per-constraint
+  outcomes, model-confidence statistics, and residual-stream states at four
+  generated-token fractions and four transformer layers.
+
+## Other OLMo 3 RLVR data and checkpoints
+
+OLMo 3 also provides controlled RL-Zero models trained directly from the 7B
+base model. These are useful for isolating the effect of one reward domain:
+
+| Domain | Model | RLVR dataset |
+|---|---|---|
+| Math | `allenai/Olmo-3-7B-RL-Zero-Math` | `allenai/Dolci-RL-Zero-Math-7B` |
+| Code | `allenai/Olmo-3-7B-RL-Zero-Code` | `allenai/Dolci-RL-Zero-Code-7B` |
+| Instruction following | `allenai/Olmo-3-7B-RL-Zero-IF` | `allenai/Dolci-RL-Zero-IF-7B` |
+| General | `allenai/Olmo-3-7B-RL-Zero-General` | `allenai/Dolci-RL-Zero-General-7B` |
+| Mixed domains | `allenai/Olmo-3-7B-RL-Zero-Mix` | `allenai/Dolci-RL-Zero-Mix-7B` |
+
+The broader released family also has 32B Think and 7B/32B Instruct tracks,
+each with SFT, DPO, and final RLVR variants. For within-base training-time
+comparisons, `allenai/Olmo-3-1025-7B` exposes intermediate revisions. The
+recommended sparse panel is:
+
+- `stage1-step10000`
+- `stage1-step700000`
+- `stage1-step1413814`
+- `stage2-step47684`
+- `main`
+
+See [`docs/experiment_matrix.md`](docs/experiment_matrix.md) for the larger
+Dolci source inventory, row counts, scorer requirements, and additional
+checkpoint suggestions.
 
 ## What to run
 
